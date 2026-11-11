@@ -1,0 +1,14 @@
+# Reproduce spec v3 screening
+
+Worktree: /workspace/trading-bot-v3  (branch v3). Do not touch /workspace/trading-bot or RUNNING.lock.
+
+    cd /workspace/trading-bot-v3
+    .venv/bin/python -m tradingbot.eval.run_spec_v3_screen
+
+Requirements: official brief /workspace/sprint/strategy-v3-brief.md SHA256
+6544095cf2e7203935e9741f3bfaef139afc3fddee0676f3c6b364f7dbbd72d2
+must be unchanged. Screening window is hard-coded 2023-01-01–2024-12-31, 2× 40 bps/side.
+C_paper=10000. Artifacts write to /workspace/sprint/artifacts/spec_v3/.
+freeze.json is write-once. Do not start a paper runner from this script.
+
+Funding zips live in data/funding/ (gitignored). The 2023-01 BTC zip is the local probe copy, not a re-download.

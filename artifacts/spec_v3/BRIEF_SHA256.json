@@ -1,0 +1,8 @@
+{
+  "recorded_at": "2026-11-11 17:04:21 +0700 (Asia/Saigon, UTC+7)",
+  "spec": "strategy-v3-brief",
+  "path": "/workspace/sprint/strategy-v3-brief.md",
+  "sha256": "6544095cf2e7203935e9741f3bfaef139afc3fddee0676f3c6b364f7dbbd72d2",
+  "note": "Hash recorded before any v3 screening fills. Official k=5 hypotheses (H1\u2013H5). N=10 official, also report N=45. Screening window 2023-01-01\u20132024-12-31 only. No historical final check. No forward paper runner in this phase. The earlier unofficial 12-variant variants.md is superseded and must not be used for selection.",
+  "supersedes": "artifacts/spec_v3/variants.md (unofficial 12-variant draft, not used)"
+}

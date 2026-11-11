@@ -19,3 +19,9 @@ state/
 *.egg-info/
 engine/artifacts/
 RUNNING.lock
+
+data/funding/
+
+.coverage
+coverage.xml
+htmlcov/

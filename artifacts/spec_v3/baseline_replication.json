@@ -1,0 +1,72 @@
+{
+  "banner": "DATA ALREADY SEEN \u2014 screening only, not counted toward PASS",
+  "window": [
+    "2023-01-01",
+    "2026-11-10"
+  ],
+  "last_closed": "2026-11-10",
+  "capital": 10000.0,
+  "loader": "frozen tradingbot.eval.load.load_panel (official /workspace/trading-bot JSON cache)",
+  "V2-CORE": {
+    "Sharpe": 0.6350701657125276,
+    "maxDD": -0.07528375506866158,
+    "end_equity": 12025.105627930443,
+    "n_days": 1410,
+    "n_closed_trades": 21,
+    "killed_on": null,
+    "rearmed_on": []
+  },
+  "BENCH-50-50": {
+    "Sharpe": 0.7930163479837269,
+    "maxDD": -0.6018358771100523,
+    "end_equity": 29227.03603102038,
+    "n_days": 1410
+  },
+  "replication": {
+    "V2-CORE_Sharpe": {
+      "got": 0.6350701657125276,
+      "expected": 0.6350701657125276,
+      "abs_diff": 0.0,
+      "match": true
+    },
+    "V2-CORE_maxDD": {
+      "got": -0.07528375506866158,
+      "expected": -0.07528375506866158,
+      "abs_diff": 0.0,
+      "match": true
+    },
+    "V2-CORE_end_equity": {
+      "got": 12025.105627930443,
+      "expected": 12025.105627930443,
+      "abs_diff": 0.0,
+      "match": true
+    },
+    "BENCH_Sharpe": {
+      "got": 0.7930163479837269,
+      "expected": 0.7930163479837269,
+      "abs_diff": 0.0,
+      "match": true
+    },
+    "BENCH_maxDD": {
+      "got": -0.6018358771100523,
+      "expected": -0.6018358771100523,
+      "abs_diff": 0.0,
+      "match": true
+    },
+    "BENCH_end_equity": {
+      "got": 29227.03603102038,
+      "expected": 29227.03603102038,
+      "abs_diff": 0.0,
+      "match": true
+    },
+    "expected_window": [
+      "2023-01-01",
+      "2026-11-10"
+    ],
+    "our_window": [
+      "2023-01-01",
+      "2026-11-10"
+    ],
+    "all_match": true
+  }
+}

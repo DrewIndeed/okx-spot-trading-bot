@@ -1,0 +1,147 @@
+{
+  "frozen_at": "2026-11-11 17:11:35 +0700 (Asia/Saigon, UTC+7)",
+  "spec": "strategy-v3-brief",
+  "sha256_brief": "6544095cf2e7203935e9741f3bfaef139afc3fddee0676f3c6b364f7dbbd72d2",
+  "brief_path": "/workspace/sprint/strategy-v3-brief.md",
+  "t0_if_cypheous_signs_off_before_close": "2026-11-12 07:00 UTC+7 (same 1Dutc close as v2); otherwise first 1Dutc close after freeze",
+  "sha256_v3_code": "533ee52ed5945f0324bdfe1dd37f172684ba732f4da5fd31b2260e15c2d691bb",
+  "v3_code_paths": [
+    "/workspace/trading-bot-v3/tradingbot/eval/v3_protocol.py",
+    "/workspace/trading-bot-v3/tradingbot/eval/v3_engine.py",
+    "/workspace/trading-bot-v3/tradingbot/eval/v3_metrics.py",
+    "/workspace/trading-bot-v3/tradingbot/eval/v3_hypotheses.py",
+    "/workspace/trading-bot-v3/tradingbot/eval/v3_funding.py",
+    "/workspace/trading-bot-v3/tradingbot/eval/v3_load.py"
+  ],
+  "screening_window": [
+    "2023-01-01",
+    "2024-12-31"
+  ],
+  "forward_slots": [
+    "H5",
+    "H1",
+    "H4"
+  ],
+  "candidates": [
+    {
+      "id": "H1",
+      "name": "FUND-CROWD",
+      "slotted": true,
+      "sha256_params": "36ee86c83943598c9da5d43c48b1a2d923bbc9bd6273a2e3f562d43a612ff6db",
+      "params": {
+        "brief": "strategy-v3-brief",
+        "id": "H1",
+        "name": "FUND-CROWD",
+        "cost_primary": 0.004,
+        "vol_target": 0.12,
+        "kill": "non-sticky -15% DD, re-arm 30 flat days AND BTC > SMA200",
+        "daily_loss_cap": -0.02,
+        "fill": "signal on closed 1Dutc t (confirm==1); fill at open of t+1",
+        "capital": "C_paper required; 6788 wedding funds excluded",
+        "base": "V-C",
+        "filter": "block new/increased longs when proxy funding >= trailing 365d p90 and positive",
+        "proxy": "BTC funding gates BTC and all alts; ETH funding gates ETH only",
+        "stale": "skip filter if last print >3 calendar days before bar close",
+        "funding_parse": "archive module 3 funding_time as UTC+8; REST fundingTime as UTC",
+        "name_cap": 0.1,
+        "regime": "V-C F2 HALT (no F1)"
+      }
+    },
+    {
+      "id": "H2",
+      "name": "RS-ROTATE",
+      "slotted": false,
+      "sha256_params": "b42e1283dbc392800dc7694bac992eacbef36d103797c86f3aa083ccd67794b2",
+      "params": {
+        "brief": "strategy-v3-brief",
+        "id": "H2",
+        "name": "RS-ROTATE",
+        "cost_primary": 0.004,
+        "vol_target": 0.12,
+        "kill": "non-sticky -15% DD, re-arm 30 flat days AND BTC > SMA200",
+        "daily_loss_cap": -0.02,
+        "fill": "signal on closed 1Dutc t (confirm==1); fill at open of t+1",
+        "capital": "C_paper required; 6788 wedding funds excluded",
+        "base": "standalone",
+        "universe": "PIT top-20 inside favorites.txt (v1 rule)",
+        "rank": "20-session excess close-to-close return vs BTC on closed 1Wutc",
+        "qualify": "1Dutc close > SMA100; flat if fewer than 2 names",
+        "hold": "until next weekly review",
+        "name_cap": 0.1,
+        "vol_band": "20% only if membership unchanged",
+        "regime": "F2 HALT + F1 REDUCE (macroy)"
+      }
+    },
+    {
+      "id": "H3",
+      "name": "CORE-SLOW",
+      "slotted": false,
+      "sha256_params": "1adf9fae8dc540a4c8f2972caa6292905beafe45523111393282aa38145b7e19",
+      "params": {
+        "brief": "strategy-v3-brief",
+        "id": "H3",
+        "name": "CORE-SLOW",
+        "cost_primary": 0.004,
+        "vol_target": 0.12,
+        "kill": "non-sticky -15% DD, re-arm 30 flat days AND BTC > SMA200",
+        "daily_loss_cap": -0.02,
+        "fill": "signal on closed 1Dutc t (confirm==1); fill at open of t+1",
+        "capital": "C_paper required; 6788 wedding funds excluded",
+        "base": "V2-CORE entry, slower exit (new code; V2-CORE frozen)",
+        "universe": [
+          "BTC",
+          "ETH"
+        ],
+        "entry": "close > SMA200 AND >=2 of 3 Donchian 20/60/90 long",
+        "exit": "close <= SMA200 OR 0 of 3 Donchian still long",
+        "name_cap": 0.5,
+        "regime": "V2-CORE F2 HALT + F1 REDUCE"
+      }
+    },
+    {
+      "id": "H4",
+      "name": "VOL-GATE",
+      "slotted": true,
+      "sha256_params": "f81e30f6d8b77e12f6055f74c7e1a9ee9b47500d95bd9d068891d33e8802c39c",
+      "params": {
+        "brief": "strategy-v3-brief",
+        "id": "H4",
+        "name": "VOL-GATE",
+        "cost_primary": 0.004,
+        "vol_target": 0.12,
+        "kill": "non-sticky -15% DD, re-arm 30 flat days AND BTC > SMA200",
+        "daily_loss_cap": -0.02,
+        "fill": "signal on closed 1Dutc t (confirm==1); fill at open of t+1",
+        "capital": "C_paper required; 6788 wedding funds excluded",
+        "base": "V-C",
+        "filter": "block new/increased longs when BTC 20d vol > trailing 756d median (min_periods=252)",
+        "name_cap": 0.1,
+        "regime": "V-C F2 HALT (no F1)"
+      }
+    },
+    {
+      "id": "H5",
+      "name": "F2-SOFT",
+      "slotted": true,
+      "sha256_params": "51e724647e92839238ac032f2aee97991049d060d1a9ea44cbd609fa1d0babe2",
+      "params": {
+        "brief": "strategy-v3-brief",
+        "id": "H5",
+        "name": "F2-SOFT",
+        "cost_primary": 0.004,
+        "vol_target": 0.12,
+        "kill": "non-sticky -15% DD, re-arm 30 flat days AND BTC > SMA200",
+        "daily_loss_cap": -0.02,
+        "fill": "signal on closed 1Dutc t (confirm==1); fill at open of t+1",
+        "capital": "C_paper required; 6788 wedding funds excluded",
+        "base": "V-C exact except F2 multiplier",
+        "regime": "F2 is REDUCE 0.5 in [tau-24h, tau+24h); stale still HALT; no force-exit",
+        "name_cap": 0.1
+      }
+    }
+  ],
+  "N_official": 10,
+  "N_conservative": 45,
+  "do_not_start_paper_runner": true,
+  "note": "DATA ALREADY SEEN screening only; not a PASS. No forward paper runner started. v2 official runner is untouched. Paper only; no keys; 6,788 USDT excluded. C_paper is the required sizing base."
+}

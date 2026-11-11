@@ -1,0 +1,637 @@
+{
+  "generated_at_utc": "2026-11-11T10:06:33Z",
+  "start": "2022-01-01",
+  "end": "2024-12-31",
+  "insts": [
+    "BTC-USDT-SWAP",
+    "ETH-USDT-SWAP"
+  ],
+  "parse": "archive funding_time treated as UTC+8 wall clock; REST fundingTime as UTC instant",
+  "records": [
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-10",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-10.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202210/BTC-USDT-SWAP-fundingrates-2022-10.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-09",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-09.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202209/BTC-USDT-SWAP-fundingrates-2022-09.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-08",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-08.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202208/BTC-USDT-SWAP-fundingrates-2022-08.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-07",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-07.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202207/BTC-USDT-SWAP-fundingrates-2022-07.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-06",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-06.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202206/BTC-USDT-SWAP-fundingrates-2022-06.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-05",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-05.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202205/BTC-USDT-SWAP-fundingrates-2022-05.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-04",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-04.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202204/BTC-USDT-SWAP-fundingrates-2022-04.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-03",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-03.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202203/BTC-USDT-SWAP-fundingrates-2022-03.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-02",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-02.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202202/BTC-USDT-SWAP-fundingrates-2022-02.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-01",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-01.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202201/BTC-USDT-SWAP-fundingrates-2022-01.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-07",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-07.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202307/BTC-USDT-SWAP-fundingrates-2023-07.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-06",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-06.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202306/BTC-USDT-SWAP-fundingrates-2023-06.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-05",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-05.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202305/BTC-USDT-SWAP-fundingrates-2023-05.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-04",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-04.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202304/BTC-USDT-SWAP-fundingrates-2023-04.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-03",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-03.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202303/BTC-USDT-SWAP-fundingrates-2023-03.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-02",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-02.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202302/BTC-USDT-SWAP-fundingrates-2023-02.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-01",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-01.zip",
+      "source": "local_probe_copy",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202301/BTC-USDT-SWAP-fundingrates-2023-01.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-12",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-12.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202212/BTC-USDT-SWAP-fundingrates-2022-12.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-11",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-11.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202211/BTC-USDT-SWAP-fundingrates-2022-11.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2022-10",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2022-10.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202210/BTC-USDT-SWAP-fundingrates-2022-10.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-04",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-04.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202404/BTC-USDT-SWAP-fundingrates-2024-04.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-03",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-03.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202403/BTC-USDT-SWAP-fundingrates-2024-03.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-02",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-02.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202402/BTC-USDT-SWAP-fundingrates-2024-02.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-01",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-01.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202401/BTC-USDT-SWAP-fundingrates-2024-01.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-12",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-12.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202312/BTC-USDT-SWAP-fundingrates-2023-12.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-11",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-11.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202311/BTC-USDT-SWAP-fundingrates-2023-11.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-10",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-10.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202310/BTC-USDT-SWAP-fundingrates-2023-10.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-09",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-09.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202309/BTC-USDT-SWAP-fundingrates-2023-09.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-08",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-08.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202308/BTC-USDT-SWAP-fundingrates-2023-08.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2023-07",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2023-07.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202307/BTC-USDT-SWAP-fundingrates-2023-07.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-12",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-12.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202412/BTC-USDT-SWAP-fundingrates-2024-12.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-11",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-11.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202411/BTC-USDT-SWAP-fundingrates-2024-11.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-10",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-10.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202410/BTC-USDT-SWAP-fundingrates-2024-10.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-09",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-09.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202409/BTC-USDT-SWAP-fundingrates-2024-09.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-08",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-08.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202408/BTC-USDT-SWAP-fundingrates-2024-08.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-07",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-07.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202407/BTC-USDT-SWAP-fundingrates-2024-07.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-06",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-06.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202406/BTC-USDT-SWAP-fundingrates-2024-06.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-05",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-05.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202405/BTC-USDT-SWAP-fundingrates-2024-05.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "BTC-USDT-SWAP",
+      "month": "2024-04",
+      "path": "/workspace/trading-bot-v3/data/funding/BTC-USDT-SWAP-fundingrates-2024-04.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202404/BTC-USDT-SWAP-fundingrates-2024-04.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-10",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-10.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202210/ETH-USDT-SWAP-fundingrates-2022-10.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-09",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-09.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202209/ETH-USDT-SWAP-fundingrates-2022-09.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-08",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-08.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202208/ETH-USDT-SWAP-fundingrates-2022-08.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-07",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-07.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202207/ETH-USDT-SWAP-fundingrates-2022-07.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-06",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-06.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202206/ETH-USDT-SWAP-fundingrates-2022-06.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-05",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-05.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202205/ETH-USDT-SWAP-fundingrates-2022-05.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-04",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-04.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202204/ETH-USDT-SWAP-fundingrates-2022-04.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-03",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-03.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202203/ETH-USDT-SWAP-fundingrates-2022-03.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-02",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-02.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202202/ETH-USDT-SWAP-fundingrates-2022-02.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-01",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-01.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202201/ETH-USDT-SWAP-fundingrates-2022-01.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-07",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-07.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202307/ETH-USDT-SWAP-fundingrates-2023-07.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-06",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-06.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202306/ETH-USDT-SWAP-fundingrates-2023-06.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-05",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-05.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202305/ETH-USDT-SWAP-fundingrates-2023-05.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-04",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-04.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202304/ETH-USDT-SWAP-fundingrates-2023-04.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-03",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-03.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202303/ETH-USDT-SWAP-fundingrates-2023-03.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-02",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-02.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202302/ETH-USDT-SWAP-fundingrates-2023-02.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-01",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-01.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202301/ETH-USDT-SWAP-fundingrates-2023-01.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-12",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-12.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202212/ETH-USDT-SWAP-fundingrates-2022-12.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-11",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-11.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202211/ETH-USDT-SWAP-fundingrates-2022-11.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2022-10",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2022-10.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202210/ETH-USDT-SWAP-fundingrates-2022-10.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-04",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-04.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202404/ETH-USDT-SWAP-fundingrates-2024-04.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-03",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-03.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202403/ETH-USDT-SWAP-fundingrates-2024-03.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-02",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-02.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202402/ETH-USDT-SWAP-fundingrates-2024-02.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-01",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-01.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202401/ETH-USDT-SWAP-fundingrates-2024-01.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-12",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-12.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202312/ETH-USDT-SWAP-fundingrates-2023-12.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-11",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-11.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202311/ETH-USDT-SWAP-fundingrates-2023-11.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-10",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-10.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202310/ETH-USDT-SWAP-fundingrates-2023-10.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-09",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-09.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202309/ETH-USDT-SWAP-fundingrates-2023-09.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-08",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-08.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202308/ETH-USDT-SWAP-fundingrates-2023-08.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2023-07",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2023-07.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202307/ETH-USDT-SWAP-fundingrates-2023-07.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-12",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-12.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202412/ETH-USDT-SWAP-fundingrates-2024-12.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-11",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-11.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202411/ETH-USDT-SWAP-fundingrates-2024-11.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-10",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-10.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202410/ETH-USDT-SWAP-fundingrates-2024-10.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-09",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-09.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202409/ETH-USDT-SWAP-fundingrates-2024-09.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-08",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-08.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202408/ETH-USDT-SWAP-fundingrates-2024-08.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-07",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-07.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202407/ETH-USDT-SWAP-fundingrates-2024-07.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-06",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-06.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202406/ETH-USDT-SWAP-fundingrates-2024-06.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-05",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-05.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202405/ETH-USDT-SWAP-fundingrates-2024-05.zip?v=1001",
+      "sizeMB_listed": "0"
+    },
+    {
+      "inst": "ETH-USDT-SWAP",
+      "month": "2024-04",
+      "path": "/workspace/trading-bot-v3/data/funding/ETH-USDT-SWAP-fundingrates-2024-04.zip",
+      "source": "already_on_disk",
+      "url": "https://static.okx.com/cdn/okex/traderecords/swaprates/monthly/202404/ETH-USDT-SWAP-fundingrates-2024-04.zip?v=1001",
+      "sizeMB_listed": "0"
+    }
+  ],
+  "errors": []
+}

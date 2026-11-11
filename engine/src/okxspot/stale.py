@@ -35,13 +35,29 @@ def bar_interval_seconds(bar: str) -> int:
 
 
 class StaleGuard:
-    """Refuse to trade when candles, clock, or price are not trustworthy."""
+    """Refuse to trade when candles, clock, or price are not trustworthy.
+
+    The bar interval comes from the strategy timeframe (1H=3600, 4H=14400,
+    1Dutc=86400), not from config. ``tolerance_sec`` defaults to 900.
+
+    Freshness uses Sofia's form (b), not form (a):
+
+    * (b, implemented) stale if ``now - last_close_ts > interval + tolerance``,
+      where ``last_close_ts`` is the close of the last confirmed bar
+      (OKX open timestamp + interval).
+    * (a, rejected) stale if ``last_open_ts < floor(now/interval)*interval
+      - tolerance``. That marks a 1D bar stale at 00:00:01 UTC, before OKX
+      has confirmed the new day's bar, and fails Sofia's test #3. See
+      ``test_form_a_fails_just_after_1d_boundary``.
+
+    A missing previous bar (no candle at last.ts - interval) is also stale.
+    """
 
     def __init__(
         self,
         *,
         bar: str,
-        tolerance_sec: float,
+        tolerance_sec: float = 900,
         max_clock_skew_ms: int,
         max_price_move_pct: Decimal,
         max_gap_bars: int = 1,
@@ -71,14 +87,18 @@ class StaleGuard:
             return False, "stale_candle"
         confirmed = sorted(confirmed, key=lambda c: c.ts)
         last = confirmed[-1]
-        age = (now - last.ts).total_seconds()
+        last_close_ts = last.ts + timedelta(seconds=self.interval)
+        age = (now - last_close_ts).total_seconds()
         if age > self.interval + self.tolerance_sec:
             return False, "stale_candle"
-        if len(confirmed) >= 2:
-            limit = timedelta(seconds=self.interval * self.max_gap_bars + 1)
-            for prev, nxt in zip(confirmed, confirmed[1:]):
-                if nxt.ts - prev.ts > limit:
-                    return False, "candle_gap"
+        expected_prev = last.ts - timedelta(seconds=self.interval)
+        by_ts = {bar.ts: bar for bar in confirmed}
+        if expected_prev not in by_ts:
+            return False, "candle_gap"
+        limit = timedelta(seconds=self.interval * self.max_gap_bars + 1)
+        for prev, nxt in zip(confirmed, confirmed[1:]):
+            if nxt.ts - prev.ts > limit:
+                return False, "candle_gap"
         if last_price is not None and last.close > 0:
             move = abs(Decimal(str(last_price)) - last.close) / last.close
             if move > self.max_price_move_pct:

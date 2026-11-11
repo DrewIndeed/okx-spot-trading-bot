@@ -223,8 +223,10 @@ def test_b1_cli_trip_blocks_next_cycle_and_cancels(tmp_path: Path) -> None:
     engine, settings, state = _engine(tmp_path, ex, settings=make_settings(
         kill_switch_path=str(tmp_path / "KILL"),
         journal_path=str(tmp_path / "j.jsonl"),
+        bar="1H",
     ))
-    series = {"BTC-USDT": [_closed(now - timedelta(hours=1), "100"), _closed(now, "100")]}
+    # Last confirmed 1H bar opened at 00:00 and closed at `now` (01:00); previous is present.
+    series = {"BTC-USDT": [_closed(now - timedelta(hours=2), "100"), _closed(now - timedelta(hours=1), "100")]}
     feed = FakeFeed(series)
     _loop(engine, feed, settings, once=True, live=False, now=lambda: now)
     placed_before = len(ex.place_calls)

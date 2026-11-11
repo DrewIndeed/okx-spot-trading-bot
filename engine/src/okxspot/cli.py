@@ -11,6 +11,10 @@ from okxspot import DISCLAIMER, __version__
 from okxspot.config import load_settings
 from okxspot.errors import LiveGuardError, OkxSpotError
 from okxspot.logging_config import configure_logging
+from okxspot.demo import demo_keys_from_env, missing_demo_keys_message
+from okxspot.alerts import build_alerter
+from okxspot.killswitch import KillSwitch
+from okxspot.watchdog import PROTECTED_PID, Supervisor
 from okxspot.runtime import (
     prepare_live,
     run_backtest,
@@ -45,6 +49,26 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
     live.add_argument("--config", required=True)
     live.add_argument("--enable-live", action="store_true")
     live.add_argument("--once", action="store_true")
+
+
+    kill = sub.add_parser("kill", help="trip the kill switch and block new orders")
+    kill.add_argument("--config", required=True)
+    kill.add_argument("--reason", default="manual")
+    kill.add_argument("--cancel-open", action="store_true")
+
+    rearm = sub.add_parser("rearm", help="manually re-arm a tripped kill switch")
+    rearm.add_argument("--config", required=True)
+
+    demo = sub.add_parser(
+        "demo-dry-run",
+        help="OKX demo trading dry-run; exits cleanly if no demo key is present",
+    )
+    demo.add_argument("--config", required=True)
+
+    sup = sub.add_parser("supervise", help="restart a paper/demo command; never touches pid 129703")
+    sup.add_argument("--config", required=True)
+    sup.add_argument("--protect-pid", type=int, default=PROTECTED_PID)
+    sup.add_argument("command", nargs=argparse.REMAINDER)
 
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
@@ -85,6 +109,46 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
                 env=environ,
             )
             run_live_loop(settings, client, once=args.once)
+            return 0
+        if args.cmd == "kill":
+            settings = load_settings(args.config)
+            ks = KillSwitch(settings.kill_switch_path)
+            ks.trip(args.reason, cancel_open=args.cancel_open, source="cli")
+            print(f"kill switch tripped reason={args.reason} path={settings.kill_switch_path}")
+            return 0
+        if args.cmd == "rearm":
+            settings = load_settings(args.config)
+            ks = KillSwitch(settings.kill_switch_path)
+            ks.rearm(operator="cli")
+            print(f"kill switch rearmed path={settings.kill_switch_path}")
+            return 0
+        if args.cmd == "demo-dry-run":
+            load_settings(args.config)
+            keys = demo_keys_from_env(environ)
+            if keys is None:
+                print(missing_demo_keys_message())
+                return 0
+            print(
+                "Demo key is present (redacted). No order was sent. "
+                "A mocked or operator-supervised demo session is required next; "
+                "this dry-run only confirmed that demo credentials exist."
+            )
+            return 0
+        if args.cmd == "supervise":
+            settings = load_settings(args.config)
+            command = list(args.command)
+            if command and command[0] == "--":
+                command = command[1:]
+            if not command:
+                raise OkxSpotError("supervise requires a command after --")
+            supervisor = Supervisor(
+                command,
+                heartbeat_path=settings.heartbeat_path,
+                kill_switch=KillSwitch(settings.kill_switch_path),
+                alerter=build_alerter(settings),
+                protected_pids=frozenset({int(args.protect_pid), PROTECTED_PID}),
+            )
+            supervisor.run_until_stopped()
             return 0
     except LiveGuardError as exc:
         print(f"error: {exc}", file=sys.stderr)

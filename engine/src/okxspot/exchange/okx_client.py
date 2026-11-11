@@ -10,6 +10,7 @@ import httpx
 from okxspot.errors import AmbiguousOrderError, LiveGuardError, OkxApiError
 from okxspot.exchange.rate_limit import TokenBucket, backoff_seconds
 from okxspot.exchange.signing import build_request_path, format_okx_timestamp, okx_sign
+from okxspot.demo import DEMO_HEADER, DEMO_HEADER_VALUE
 from okxspot.safety import NETWORK_DISABLE_ENV
 
 # Business codes that mean "try again", the request was not accepted.
@@ -39,6 +40,7 @@ class OkxClient:
         now_ms: Callable[[], int] | None = None,
         sleeper: Callable[[float], None] | None = None,
         limiter: TokenBucket | None = None,
+        simulated: bool = False,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or ""
@@ -50,6 +52,7 @@ class OkxClient:
         self._sleeper = sleeper or time.sleep
         self._mock = transport is not None
         self.limiter = limiter or TokenBucket(rate_limit_per_sec)
+        self.simulated = bool(simulated)
         self._http = httpx.Client(base_url=self.base_url, timeout=timeout_s, transport=transport)
 
     @property
@@ -136,6 +139,8 @@ class OkxClient:
 
     def _headers(self, auth: bool, method: str, path: str, body: str) -> dict[str, str]:
         headers = {"Content-Type": "application/json", "User-Agent": "okxspot/0.1"}
+        if self.simulated:
+            headers[DEMO_HEADER] = DEMO_HEADER_VALUE
         if not auth:
             return headers
         if not self.api_key or not self.secret or not self.passphrase:

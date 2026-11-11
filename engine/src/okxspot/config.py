@@ -25,6 +25,10 @@ class RiskSettings(BaseModel):
     daily_loss_limit_pct: Decimal
     max_drawdown_pct: Decimal
     cooldown_bars_after_loss: int = Field(ge=0)
+    min_notional: Decimal | None = None
+    max_notional: Decimal | None = None
+    max_orders_per_minute: int = Field(default=30, ge=1)
+    max_orders_per_day: int = Field(default=500, ge=1)
 
     @field_validator(
         "risk_per_trade",
@@ -32,10 +36,14 @@ class RiskSettings(BaseModel):
         "per_coin_cap_pct",
         "daily_loss_limit_pct",
         "max_drawdown_pct",
+        "min_notional",
+        "max_notional",
         mode="before",
     )
     @classmethod
-    def _parse_decimals(cls, value: object) -> Decimal:
+    def _parse_decimals(cls, value: object) -> Decimal | None:
+        if value is None or value == "":
+            return None
         return _dec(value)
 
     @field_validator("risk_per_trade")
@@ -55,6 +63,16 @@ class RiskSettings(BaseModel):
     def _pct(cls, value: Decimal) -> Decimal:
         if value <= 0 or value > 1:
             raise ValueError("percentage limits must be in (0, 1]")
+        return value
+
+
+    @field_validator("min_notional", "max_notional")
+    @classmethod
+    def _positive_optional(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("notional limits must be positive when set")
         return value
 
 
@@ -180,7 +198,14 @@ class RuntimeSettings(BaseModel):
     poll_seconds: float = Field(default=30, gt=0)
 
 
+class AlertSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_path: str | None = None
+
+
 class Settings(BaseModel):
+
     """Engine configuration.
 
     ``allocated_capital`` is a fixed USDT cap. It is required. Sizing never
@@ -191,6 +216,13 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     mode: Literal["paper", "live", "backtest"] = "paper"
+    live_enabled: bool = False
+    require_dedicated_subaccount: bool = True
+    require_ip_restriction: bool = True
+    required_account_label: str | None = None
+    required_uid: str | None = None
+    kill_switch_path: str = "state/KILL_SWITCH"
+    heartbeat_path: str = "state/heartbeat.json"
     allocated_capital: Decimal
     max_allocated_capital: Decimal
     quote_ccy: str = "USDT"
@@ -202,6 +234,7 @@ class Settings(BaseModel):
     strategy: StrategySettings
     okx: OkxSettings = OkxSettings()
     telegram: TelegramSettings = TelegramSettings()
+    alerts: AlertSettings = AlertSettings()
     state: StateSettings = StateSettings()
     backtest: BacktestSettings = BacktestSettings()
     runtime: RuntimeSettings = RuntimeSettings()
@@ -232,6 +265,14 @@ class Settings(BaseModel):
     def _regime(cls, value: str) -> str:
         assert_spot_symbol(value)
         return value
+
+    @field_validator("required_account_label", "required_uid", mode="before")
+    @classmethod
+    def _blank_to_none(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        text_value = str(value).strip()
+        return text_value or None
 
     @field_validator("quote_ccy")
     @classmethod

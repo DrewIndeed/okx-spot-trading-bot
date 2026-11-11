@@ -23,6 +23,7 @@ D = Decimal
 def _ok(**overrides: object) -> None:
     params: dict[str, object] = {
         "enable_live_flag": True,
+        "live_enabled": True,
         "env_confirm": LIVE_CONFIRM_VALUE,
         "allocated_capital": D("1000"),
         "max_allocated_capital": D("1000"),

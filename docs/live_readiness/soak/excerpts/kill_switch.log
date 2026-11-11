@@ -1,0 +1,11 @@
+before_trip_allowed=True
+after_trip_allowed=False reason=kill_switch
+persisted_after_restart=True reason=soak
+{
+  "cancel_open": false,
+  "rearmed": false,
+  "reason": "soak",
+  "source": "soak",
+  "tripped": true,
+  "ts": "2026-11-11T10:04:32.608204+00:00"
+}

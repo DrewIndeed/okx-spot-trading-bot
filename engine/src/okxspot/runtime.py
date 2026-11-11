@@ -18,9 +18,12 @@ from okxspot.exchange.ws import default_connect
 from okxspot.instruments import default_instruments
 from okxspot.logging_config import Log
 from okxspot.marketdata import PublicFeed
+from okxspot.exchange.okx_parse import AccountConfig
 from okxspot.safety import (
     OkxKeys,
+    confirm_live_env,
     read_okx_keys,
+    validate_account_restrictions,
     validate_live_preconditions,
     validate_permissions,
 )
@@ -41,7 +44,7 @@ def connect_okx(settings: Settings, keys: OkxKeys) -> OkxClient:
     )
 
 
-def fetch_permissions(client: OkxClient, settings: Settings) -> set[str]:
+def fetch_account_config(client: OkxClient, settings: Settings) -> AccountConfig:
     exchange = OkxExchange(
         client,
         quote_ccy=settings.quote_ccy,
@@ -49,25 +52,31 @@ def fetch_permissions(client: OkxClient, settings: Settings) -> set[str]:
         bar=settings.bar,
     )
     client.sync_clock()
-    return exchange.get_permissions()
+    return exchange.get_account_config()
+
+
+def fetch_permissions(client: OkxClient, settings: Settings) -> set[str]:
+    return fetch_account_config(client, settings).permissions
 
 
 def prepare_live(settings: Settings, *, enable_live_flag: bool, env: Mapping[str, str]) -> OkxClient:
     """Run every live gate before any order can be built."""
     validate_live_preconditions(
         enable_live_flag=enable_live_flag,
-        env_confirm=env.get("OKX_LIVE_CONFIRM"),
+        live_enabled=settings.live_enabled,
+        env_confirm=confirm_live_env(env),
         allocated_capital=settings.allocated_capital,
         max_allocated_capital=settings.max_allocated_capital,
     )
     keys = read_okx_keys(env)
     client = connect_okx(settings, keys)
-    permissions = fetch_permissions(client, settings)
-    validate_permissions(permissions)
+    account = fetch_account_config(client, settings)
+    validate_permissions(account.permissions)
+    validate_account_restrictions(account, settings)
     log.info(
         "live gates passed",
         allocated_capital=str(settings.allocated_capital),
-        permissions=",".join(sorted(permissions)),
+        permissions=",".join(sorted(account.permissions)),
     )
     return client
 

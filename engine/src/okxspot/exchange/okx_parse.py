@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -17,6 +18,41 @@ from okxspot.models import (
     Ticker,
     assert_spot_symbol,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class AccountConfig:
+    """Subset of GET /api/v5/account/config used by live gates."""
+
+    permissions: set[str]
+    ip: str | None
+    uid: str
+    main_uid: str
+    label: str
+
+
+def parse_account_config(payload: dict[str, object]) -> AccountConfig:
+    data = payload.get("data")
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        return AccountConfig(permissions=set(), ip=None, uid="", main_uid="", label="")
+    first = data[0]
+    raw_perm = first.get("perm")
+    permissions = set()
+    if isinstance(raw_perm, str):
+        permissions = {part.strip().lower() for part in raw_perm.split(",") if part.strip()}
+    ip: str | None
+    if "ip" not in first:
+        ip = None
+    else:
+        ip = str(first.get("ip") or "")
+    return AccountConfig(
+        permissions=permissions,
+        ip=ip,
+        uid=str(first.get("uid") or ""),
+        main_uid=str(first.get("mainUid") or first.get("main_uid") or ""),
+        label=str(first.get("label") or ""),
+    )
+
 
 _ORDER_STATUS = {
     "live": OrderStatus.OPEN,

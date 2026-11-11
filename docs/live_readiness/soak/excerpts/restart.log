@@ -1,0 +1,8 @@
+official_protected_pid=129703
+first_child_pid=266782
+launches=2
+restart_alerts=['child exited rc=-9; restarting']
+restarted=True
+heartbeat={"ts": "2026-11-11T10:04:33.010692+00:00", "pid": 266787, "child_pid": 266787, "running": true, "argv": ["/workspace/trading-bot-live/.venv/bin/python", "/workspace/sprint/artifacts/live_readiness/soak/child_runner.py", "/workspace/sprint/artifacts/live_readiness/soak/child_marker.txt"], "supervisor_pid": 266758}
+errors=[]
+kill_switch_tripped=False

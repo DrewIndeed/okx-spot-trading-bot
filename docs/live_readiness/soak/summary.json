@@ -1,0 +1,36 @@
+{
+  "started": "2026-11-11T17:04:32.601189+07:00",
+  "zone": "UTC+7 (Etc/GMT-7)",
+  "worktree": "/workspace/trading-bot-live",
+  "official_pid": {
+    "pid": 129703,
+    "alive_at_start": true,
+    "cmdline": "/workspace/trading-bot/.venv/bin/python -m tradingbot paper-loop --strategies v2 --poll 60 --run-id spec_v2_official ",
+    "alive_at_end": true,
+    "cmdline_end": "/workspace/trading-bot/.venv/bin/python -m tradingbot paper-loop --strategies v2 --poll 60 --run-id spec_v2_official "
+  },
+  "faults": {
+    "stale_data": {
+      "handled": true,
+      "reason": "stale_candle"
+    },
+    "duplicate_submit": {
+      "handled": true,
+      "place_calls": 1,
+      "clOrdId": "cd4686be89ae0fd6d7d950b54b74b122"
+    },
+    "kill_switch": {
+      "handled": true,
+      "persisted": true,
+      "reason": "kill_switch"
+    },
+    "runner_kill_restart": {
+      "handled": true,
+      "first_child_pid": 266782,
+      "launches": 2
+    }
+  },
+  "paper_stretch_sec": 40.0,
+  "ended": "2026-11-11T17:05:13.314681+07:00",
+  "ok": true
+}

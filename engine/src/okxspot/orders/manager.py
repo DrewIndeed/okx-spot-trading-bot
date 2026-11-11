@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from okxspot.errors import AmbiguousOrderError
 from okxspot.exchange.base import Exchange
 from okxspot.models import OPEN_STATUSES, Order, OrderRequest, OrderStatus
+from okxspot.orders.journal import OrderJournal
 from okxspot.state import StateStore
 
 
@@ -19,33 +20,45 @@ class ReconcileReport:
 class OrderManager:
     """Idempotent submits and restart reconciliation by client order id."""
 
-    def __init__(self, exchange: Exchange, state: StateStore) -> None:
+    def __init__(self, exchange: Exchange, state: StateStore, journal: OrderJournal | None = None) -> None:
         self.exchange = exchange
         self.state = state
+        self.journal = journal
+
+    def _log(self, event: str, **fields: object) -> None:
+        if self.journal is not None:
+            self.journal.append(event, **fields)
 
     def submit(self, request: OrderRequest) -> Order:
         local = self.state.get_order(request.client_order_id)
         if local is not None:
+            self._log("duplicate_suppressed", client_order_id=request.client_order_id, status=local.status)
             return local
         remote = self.exchange.get_order(request.inst_id, request.client_order_id)
         if remote is not None:
             self.state.upsert_order(remote)
+            self._log("queried", client_order_id=request.client_order_id, status=remote.status)
             return remote
         order = self._place(request)
         self.state.upsert_order(order)
+        self._log("submitted", client_order_id=request.client_order_id, status=order.status)
         return order
 
     def _place(self, request: OrderRequest) -> Order:
         try:
             return self.exchange.place_order(request)
         except AmbiguousOrderError:
+            self._log("ambiguous", client_order_id=request.client_order_id, status="unknown")
             remote = self.exchange.get_order(request.inst_id, request.client_order_id)
+            self._log("queried", client_order_id=request.client_order_id, status=getattr(remote, "status", None))
             if remote is not None:
                 return remote
             try:
                 return self.exchange.place_order(request)
             except AmbiguousOrderError:
+                self._log("ambiguous", client_order_id=request.client_order_id, status="unknown")
                 remote = self.exchange.get_order(request.inst_id, request.client_order_id)
+                self._log("queried", client_order_id=request.client_order_id, status=getattr(remote, "status", None))
                 if remote is None:
                     raise
                 return remote
@@ -66,8 +79,10 @@ class OrderManager:
             self.state.upsert_order(remote)
             if prev is None:
                 report.adopted.append(remote.client_order_id)
+                self._log("reconciled", client_order_id=remote.client_order_id, status=remote.status)
             else:
                 report.updated.append(remote.client_order_id)
+                self._log("reconciled", client_order_id=remote.client_order_id, status=remote.status)
         for local in local_open:
             if local.client_order_id in remote_ids:
                 continue
@@ -76,9 +91,11 @@ class OrderManager:
                 local.status = OrderStatus.UNKNOWN
                 self.state.upsert_order(local)
                 report.missing.append(local.client_order_id)
+                self._log("mismatch", client_order_id=local.client_order_id, status=OrderStatus.UNKNOWN)
                 continue
             self.state.upsert_order(found)
             report.updated.append(local.client_order_id)
+            self._log("reconciled", client_order_id=found.client_order_id, status=found.status)
             if found.status is OrderStatus.FILLED:
                 report.filled.append(local.client_order_id)
         return report

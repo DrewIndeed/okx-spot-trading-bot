@@ -139,3 +139,36 @@ Both test suites (tradingbot + okxspot):
 ## Tests
 
 ` /workspace/trading-bot/.venv/bin/pytest -q ` covers risk (sizing, caps, kill-switch, duplicates, allocated_capital), order fees/slippage, live refusal, portfolio restart, WS mock + optional live smoke, universe/breadth/regime, D1 plugin sizing, and paper-log schema.
+
+## Live readiness (paper / OKX demo only)
+
+Hardening for unattended overnight paper/demo runs lives on branch `live-ready` in worktree `/workspace/trading-bot-live`. It must not be mixed with the official spec v2 paper-forward runner (pid 129703, `/workspace/trading-bot`).
+
+This tree is **not live**. Default mode is paper. Live start is refused unless all of these hold: `live_enabled: true` in config, `--enable-live`, `OKX_LIVE_CONFIRM=I_ACCEPT_LIVE_TRADING_LOSS_RISK` or `LIVE_CONFIRM=I_ACCEPT`, an explicit `allocated_capital` (never the 6,788 USDT wedding money, never the account balance), a trade-only key with **no withdraw**, IP restriction when detectable (fail-closed), and a dedicated subaccount/label check. Andrew's explicit OK in chat is still required before anyone turns those flags on.
+
+### Operations in this worktree
+
+```bash
+cd /workspace/trading-bot-live
+scripts/test_all.sh
+.venv/bin/python -m tradingbot demo-dry-run
+.venv/bin/python -m tradingbot kill --reason operator      # persist; blocks new orders
+.venv/bin/python -m tradingbot rearm                       # manual only
+scripts/supervise-paper.sh                                 # watchdog; never touches pid 129703
+```
+
+The supervisor writes a heartbeat (`state/heartbeat.json` by default), restarts the child with backoff, and trips the kill switch + alerts if restarts exceed the hourly cap. A systemd --user unit is in `deploy/okxspot-paper.service` (WorkingDirectory is this worktree only).
+
+Pre-trade limits, the stale-data guard (including clock skew versus `GET /api/v5/public/time`), the order journal, and file/log alerts are in `engine/src/okxspot/`. Telegram remains a stub until `TELEGRAM_BOT_TOKEN` is set via the secret form.
+
+### OKX demo trading
+
+`OkxClient(simulated=True)` sends the official `x-simulated-trading: 1` header. Tests are mock-based. `demo-dry-run` exits 0 and tells you a demo key is needed if `OKX_DEMO_API_KEY`, `OKX_DEMO_API_SECRET`, and `OKX_DEMO_API_PASSPHRASE` are unset.
+
+To run a real demo session, Andrew would need to create an **OKX demo-trading** API key with **read + trade** and **withdraw disabled**, then enter those three variables through the hidden secret form, never chat.
+
+### Checklist and soak evidence
+
+- Go-live checklist (evidence column, open items): `docs/live_readiness/go_live_checklist.md`
+- Summary: `docs/live_readiness/summary.md`
+- Time-compressed soak + fault-injection excerpts: `docs/live_readiness/soak/`

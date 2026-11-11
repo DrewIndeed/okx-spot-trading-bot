@@ -14,6 +14,7 @@ from okxspot.exchange.okx_parse import (
     parse_instrument,
     parse_okx_candle_row,
     parse_order_row,
+    parse_account_config,
     parse_permissions,
     parse_stop_row,
     parse_ticker_row,
@@ -157,6 +158,11 @@ class OkxExchange(Exchange):
         payload = self.client.request("GET", "/api/v5/account/config", auth=True, idempotent=True)
         ensure_ok(payload)
         return parse_permissions(payload)
+
+    def get_account_config(self):
+        payload = self.client.request("GET", "/api/v5/account/config", auth=True, idempotent=True)
+        return parse_account_config(payload)
+
 
     def place_order(self, request: OrderRequest) -> Order:
         self._refuse_if_unmocked()

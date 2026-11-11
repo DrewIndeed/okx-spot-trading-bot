@@ -1,0 +1,19 @@
+# systemd --user unit for the live-ready worktree paper supervisor.
+# Do not point this at /workspace/trading-bot. Never signal pid 129703
+# (official spec_v2 paper-forward runner).
+[Unit]
+Description=OKX spot paper supervisor (trading-bot-live only)
+After=default.target
+
+[Service]
+Type=simple
+WorkingDirectory=/workspace/trading-bot-live
+ExecStart=/workspace/trading-bot-live/scripts/supervise-paper.sh
+Restart=on-failure
+RestartSec=5
+# Hard exclusion: the official runner pid must never be the service PID.
+# The supervisor itself also refuses to manage 129703.
+Environment=OKXSPOT_DISABLE_NETWORK=0
+
+[Install]
+WantedBy=default.target

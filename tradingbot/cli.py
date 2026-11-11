@@ -1,4 +1,4 @@
-"""CLI: python -m tradingbot {backtest,data-sync,paper-once,paper-start,paper-stop,paper-status,ws-smoke}"""
+"""CLI: python -m tradingbot {backtest,data-sync,paper-once,paper-start,paper-stop,paper-status,ws-smoke,kill,rearm,demo-dry-run}"""
 
 from __future__ import annotations
 
@@ -523,7 +523,49 @@ def build_parser() -> argparse.ArgumentParser:
     ws.add_argument("--symbol", default=None)
     ws.add_argument("--bar", default="1H")
     ws.add_argument("--timeout", type=float, default=12.0)
+    kill = sub.add_parser("kill", help="Trip the file kill switch (blocks new orders; does not touch the official v2 runner)")
+    kill.add_argument("--reason", default="manual")
+    kill.add_argument("--cancel-open", action="store_true")
+    sub.add_parser("rearm", help="Manually re-arm the kill switch")
+    sub.add_parser("demo-dry-run", help="OKX demo dry-run; exits cleanly if no demo key is present")
     return p
+
+
+def _kill_switch_path(cfg: Config) -> Path:
+    return Path(cfg.state_path).expanduser().resolve().parent / "KILL_SWITCH"
+
+
+def cmd_kill(cfg: Config, args) -> int:
+    from okxspot.killswitch import KillSwitch
+
+    path = _kill_switch_path(cfg)
+    KillSwitch(path).trip(getattr(args, "reason", "manual"), cancel_open=bool(getattr(args, "cancel_open", False)), source="cli")
+    print(f"kill switch tripped path={path}")
+    return 0
+
+
+def cmd_rearm(cfg: Config) -> int:
+    from okxspot.killswitch import KillSwitch
+
+    path = _kill_switch_path(cfg)
+    KillSwitch(path).rearm(operator="cli")
+    print(f"kill switch rearmed path={path}")
+    return 0
+
+
+def cmd_demo_dry_run() -> int:
+    import os
+
+    from okxspot.demo import demo_keys_from_env, missing_demo_keys_message
+
+    if demo_keys_from_env(os.environ) is None:
+        print(missing_demo_keys_message())
+        return 0
+    print(
+        "Demo key is present (redacted). No order was sent. "
+        "Enter demo keys only through the secret form, never chat."
+    )
+    return 0
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -576,6 +618,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_data_sync(cfg, args)
     if args.cmd == "ws-smoke":
         return cmd_ws_smoke(cfg, args)
+    if args.cmd == "kill":
+        return cmd_kill(cfg, args)
+    if args.cmd == "rearm":
+        return cmd_rearm(cfg)
+    if args.cmd == "demo-dry-run":
+        return cmd_demo_dry_run()
     return 2
 
 

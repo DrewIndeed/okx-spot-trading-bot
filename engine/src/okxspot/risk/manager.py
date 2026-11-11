@@ -7,8 +7,9 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from okxspot.config import RiskSettings
+from okxspot.killswitch import KillSwitch
 from okxspot.decimals import dec_str, parse_decimal
-from okxspot.models import Instrument
+from okxspot.models import Instrument, OrderPurpose, Side
 from okxspot.risk.equity import sizing_equity
 from okxspot.risk.rounding import meets_min_notional, round_price, round_qty
 
@@ -35,9 +36,12 @@ class RiskManager:
         cfg: RiskSettings,
         *,
         on_flatten: Callable[[str], None] | None = None,
+        kill_switch: KillSwitch | None = None,
     ) -> None:
         self.cfg = cfg
         self._on_flatten = on_flatten or (lambda _reason: None)
+        self.kill_switch = kill_switch
+        self._submit_times: list[datetime] = []
         self.halted = False
         self.halt_reason: str | None = None
         self.peak = Decimal("0")
@@ -86,6 +90,63 @@ class RiskManager:
                 self.flatten_sent = True
                 self._on_flatten("max_drawdown")
 
+
+    def pretrade(
+        self,
+        *,
+        inst_id: str,
+        side: Side,
+        purpose: OrderPurpose,
+        notional: Decimal,
+        now: datetime,
+        td_mode: str = "cash",
+        leverage: Decimal | None = None,
+        record: bool = True,
+    ) -> RiskDecision:
+        """Single pre-trade gate used before any submit.
+
+        Sizing equity is never read from an exchange account balance.
+        """
+        eq = Decimal("0")
+
+        def reject(reason: str) -> RiskDecision:
+            return RiskDecision(False, Decimal("0"), None, reason, Decimal("0"), eq)
+
+        if now.tzinfo is None:
+            raise ValueError("pretrade timestamp must be timezone-aware")
+        if self.kill_switch is not None and self.kill_switch.is_tripped:
+            return reject("kill_switch")
+        if self.halted and purpose in {OrderPurpose.ENTRY}:
+            return reject("halted")
+        if purpose is OrderPurpose.ENTRY and self.daily_loss_hit:
+            return reject("daily_loss_limit")
+        if purpose is OrderPurpose.ENTRY and side is Side.SELL:
+            return reject("spot_long_only")
+        if (td_mode or "cash").lower() != "cash":
+            return reject("no_margin")
+        if leverage is not None and leverage > 1:
+            return reject("no_leverage")
+        inst_up = inst_id.upper()
+        if "SWAP" in inst_up or "FUTURES" in inst_up or inst_id.count("-") != 1:
+            return reject("spot_only")
+        min_n = self.cfg.min_notional
+        max_n = self.cfg.max_notional
+        if purpose is OrderPurpose.ENTRY and min_n is not None and notional < min_n:
+            return reject("min_notional")
+        if purpose is OrderPurpose.ENTRY and max_n is not None and notional > max_n:
+            return reject("max_notional")
+        day = now.astimezone(UTC).date()
+        minute_ago = now.timestamp() - 60
+        minute_count = sum(1 for ts in self._submit_times if ts.timestamp() >= minute_ago)
+        day_count = sum(1 for ts in self._submit_times if ts.astimezone(UTC).date() == day)
+        if minute_count >= self.cfg.max_orders_per_minute:
+            return reject("max_orders_per_minute")
+        if day_count >= self.cfg.max_orders_per_day:
+            return reject("max_orders_per_day")
+        if record:
+            self._submit_times.append(now)
+        return RiskDecision(True, Decimal("0"), None, "ok", Decimal("0"), eq)
+
     def evaluate_entry(
         self,
         *,
@@ -109,6 +170,8 @@ class RiskManager:
         def reject(reason: str) -> RiskDecision:
             return RiskDecision(False, Decimal("0"), stop_price, reason, Decimal("0"), eq)
 
+        if self.kill_switch is not None and self.kill_switch.is_tripped:
+            return reject("kill_switch")
         if self.halted:
             return reject("halted")
         if self.daily_loss_hit:

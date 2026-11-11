@@ -1,0 +1,5 @@
+{"ts": "2026-11-11T10:04:32.601886+00:00", "level": "warning", "event": "stale_data", "message": "stale_candle refused trade"}
+{"ts": "2026-11-11T10:04:32.607887+00:00", "level": "warning", "event": "recon_mismatch", "message": "duplicate submit suppressed"}
+{"ts": "2026-11-11T10:04:32.608284+00:00", "level": "critical", "event": "kill_switch", "message": "soak tripped kill switch"}
+{"ts": "2026-11-11T10:04:32.809846+00:00", "level": "warning", "event": "restart", "message": "child exited rc=-9; restarting"}
+{"ts": "2026-11-11T10:04:33.311543+00:00", "level": "info", "event": "daily_summary", "message": "soak daily summary: faults injected and handled, errors=0"}

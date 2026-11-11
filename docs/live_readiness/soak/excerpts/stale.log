@@ -1,0 +1,3 @@
+ok=False
+reason=stale_candle
+expected=stale_candle (last closed candle older than 1H + 60s)

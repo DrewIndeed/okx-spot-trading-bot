@@ -53,14 +53,22 @@ def test_live_never_connects_without_gates(tmp_path, monkeypatch) -> None:  # ty
 
 
 def test_live_refuses_withdraw_permission(tmp_path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from okxspot.exchange.okx_parse import AccountConfig
+
     monkeypatch.setattr("okxspot.runtime.connect_okx", lambda *a, **k: object())
     monkeypatch.setattr(
-        "okxspot.runtime.fetch_permissions",
-        lambda client, settings: {"trade", "withdraw"},
+        "okxspot.runtime.fetch_account_config",
+        lambda client, settings: AccountConfig(
+            permissions={"trade", "withdraw"},
+            ip="1.2.3.4",
+            uid="sub",
+            main_uid="main",
+            label="bot",
+        ),
     )
     ran: list[str] = []
     monkeypatch.setattr("okxspot.cli.run_live_loop", lambda *a, **k: ran.append("ran"))
-    cfg = write_config(tmp_path)
+    cfg = write_config(tmp_path, live_enabled=True)
     env = {
         "OKX_LIVE_CONFIRM": LIVE_CONFIRM_VALUE,
         "OKX_API_KEY": "test-key",

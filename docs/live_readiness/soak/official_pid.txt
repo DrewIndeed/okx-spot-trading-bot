@@ -1,0 +1,3 @@
+alive=True
+pid=129703
+cmdline=/workspace/trading-bot/.venv/bin/python -m tradingbot paper-loop --strategies v2 --poll 60 --run-id spec_v2_official 

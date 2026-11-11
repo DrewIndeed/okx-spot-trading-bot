@@ -156,3 +156,14 @@ pytest
 
 The tests never call the real OKX trade API. They do not contain keys.
 Nothing here is a promise of profit.
+
+
+## Live readiness extras (paper / demo only)
+
+See the repository root README, `docs/live_readiness/`, and:
+
+* `okxspot kill` / `okxspot rearm` — file kill switch, manual re-arm only
+* `okxspot demo-dry-run` — exits cleanly when no demo key is present
+* `okxspot supervise` / `scripts/supervise-paper.sh` — watchdog (never pid 129703)
+* Config flags: `live_enabled` (default false), `require_dedicated_subaccount`, `require_ip_restriction`
+* Demo header: `x-simulated-trading: 1` when `OkxClient(simulated=True)`

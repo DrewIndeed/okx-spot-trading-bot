@@ -3,6 +3,12 @@
 # still requires --enable-live and OKX_LIVE_CONFIRM.
 
 mode: paper
+live_enabled: false
+# Live also requires --enable-live, OKX_LIVE_CONFIRM, a dedicated subaccount, and an IP-restricted trade-only key.
+require_dedicated_subaccount: true
+require_ip_restriction: true
+kill_switch_path: state/KILL_SWITCH
+heartbeat_path: state/heartbeat.json
 allocated_capital: "1000"
 max_allocated_capital: "1000"
 quote_ccy: USDT

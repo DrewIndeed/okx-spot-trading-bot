@@ -203,6 +203,18 @@ def test_1d_just_after_midnight_utc_within_and_past_threshold() -> None:
     assert ok_tol is True
     assert reason_tol == "ok"
 
+    # Mid-window on 2 Jan: form (b) is still fresh, but measuring age from the
+    # bar open (last.ts) would already be stale (36h > interval + 900s).
+    mid_day = last_close + timedelta(hours=12)
+    ok_mid, reason_mid = guard.check(
+        candles=[_candle(previous), _candle(last_open)],
+        now=mid_day,
+        server_time_ms=int(mid_day.timestamp() * 1000),
+        last_price=Decimal("100"),
+    )
+    assert ok_mid is True
+    assert reason_mid == "ok"
+
     past = last_close + timedelta(seconds=int(guard.interval + guard.tolerance_sec + 1))
     ok_late, reason_late = guard.check(
         candles=[_candle(previous), _candle(last_open)],

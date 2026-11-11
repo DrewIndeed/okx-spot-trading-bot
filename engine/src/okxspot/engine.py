@@ -373,6 +373,9 @@ class TradingEngine:
     def _persist(self) -> None:
         cursor = getattr(self.exchange, "fill_cursor", None)
         self.state.save_book(self.book, fill_cursor=cursor)
+        commit = getattr(self.exchange, "commit_fill_cursor", None)
+        if callable(commit):
+            commit()
         self.state.set_kv("risk_state", self.risk.export_json())
         if isinstance(self.exchange, PaperExchange):
             self.state.save_paper_balances(self.exchange.cash_available, dict(self.exchange.bases))

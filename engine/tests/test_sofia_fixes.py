@@ -1017,14 +1017,13 @@ def test_m8_fill_cursor_persists_across_restart_and_does_not_reapply(tmp_path: P
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/trade/fills"):
             seen_params.append(dict(request.url.params))
-            after = dict(request.url.params).get("after")
-            if after:
-                # after the persisted cursor, venue has nothing newer/older to add
+            params = dict(request.url.params)
+            after = params.get("after")
+            before = params.get("before")
+            if before or (after and after in {"b-new", "b-old"}):
+                # A follow-up sync keyed off the saved cursor has no additional fills.
                 return httpx.Response(200, json={"code": "0", "data": []})
-            idx = min(len([p for p in seen_params if not p.get("after")]) - 1, len(pages) - 1)
-            # first-pass pagination (no after, then after from page)
-            if after is None and len([p for p in seen_params if not p.get("after")]) == 1:
-                return httpx.Response(200, json=pages[0])
+            # First-pass backfill: no cursor bound, then after= to walk older pages.
             return httpx.Response(200, json=pages[min(len(seen_params) - 1, len(pages) - 1)])
         return httpx.Response(404, json={"code": "404", "msg": request.url.path})
 
@@ -1045,7 +1044,7 @@ def test_m8_fill_cursor_persists_across_restart_and_does_not_reapply(tmp_path: P
     first_ids = set(engine.book.applied)
     assert "old-1" in first_ids or "new-1" in first_ids
     cursor = state.get_kv("fill_cursor")
-    assert cursor
+    assert cursor == "b-new"
     state.close()
     ex.client.close()
 
@@ -1055,13 +1054,169 @@ def test_m8_fill_cursor_persists_across_restart_and_does_not_reapply(tmp_path: P
     engine2 = build_engine(exchange=ex2, settings=settings, strategy=Flat(), state=state2, fee_rate=D("0"))
     assert state2.get_kv("fill_cursor") == cursor
     engine2.sync_exchange_fills()
-    # Cursor is sent so we do not walk the first page again blindly.
-    assert any(p.get("after") == cursor for p in seen_params[seen_before:])
+    # Cursor is the newest billId; later syncs use before= (newer than cursor).
+    assert any(p.get("before") == cursor for p in seen_params[seen_before:])
+    assert all(p.get("after") != cursor for p in seen_params[seen_before:])
     assert engine2.book.applied == first_ids or first_ids <= engine2.book.applied
     # applied fills are not applied twice
     assert list(engine2.book.applied).count("old-1") <= 1 if "old-1" in engine2.book.applied else True
     state2.close()
     ex2.client.close()
+
+
+def test_m8_newer_fills_after_saved_cursor_are_applied_once_in_order(tmp_path: Path) -> None:
+    """Subsequent syncs must request fills *newer* than the newest saved billId.
+
+    OKX v5 (docs-v5/trick_en + GET /api/v5/trade/fills):
+    ``before=<billId>`` returns records newer than that billId (closest to it,
+    newest-first on the page). ``after=<billId>`` returns earlier records and
+    would miss anything that arrived after the cursor was saved.
+    The persisted cursor moves to the newest billId only after save_book.
+    """
+    from okxspot.exchange.okx_exchange import OkxExchange
+
+    def _cid(tag: str) -> str:
+        return (tag + "x" * 32)[:32]
+
+    def _row(trade_id: str, bill_id: str, ts_ms: int, qty: str = "0.001") -> dict[str, str]:
+        return {
+            "tradeId": trade_id,
+            "billId": bill_id,
+            "clOrdId": _cid(trade_id),
+            "instId": "BTC-USDT",
+            "side": "buy",
+            "fillPx": "100",
+            "fillSz": qty,
+            "fee": "0",
+            "feeCcy": "USDT",
+            "ts": str(ts_ms),
+        }
+
+    # billId is a monotonic integer-as-string, like OKX snowflakes.
+    seed = [
+        _row("old-1", "100", 1_700_000_000_000, qty="0.01"),
+        _row("old-2", "110", 1_700_000_001_000, qty="0.01"),
+    ]
+    newer = [
+        _row(f"new-{i}", str(200 + i), 1_700_000_100_000 + i * 1000)
+        for i in range(1, 251)
+    ]
+    venue: list[dict[str, str]] = list(seed)
+    seen_params: list[dict[str, str]] = []
+
+    def _bill(row: dict[str, str]) -> int:
+        return int(row["billId"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if not request.url.path.endswith("/trade/fills"):
+            return httpx.Response(404, json={"code": "404", "msg": request.url.path})
+        params = dict(request.url.params)
+        seen_params.append(params)
+        rows = list(venue)
+        after = params.get("after")
+        before = params.get("before")
+        # Official semantics: after = earlier than billId; before = newer than billId;
+        # both exclusive; always newest-first; if only before is set, return the
+        # records closest to that billId (https://www.okx.com/docs-v5/trick_en/).
+        if after is not None:
+            rows = [r for r in rows if _bill(r) < int(after)]
+        if before is not None:
+            rows = [r for r in rows if _bill(r) > int(before)]
+        rows.sort(key=_bill, reverse=True)
+        limit = int(params.get("limit") or 100)
+        if before is not None and after is None:
+            # Official trick_en: only-before returns records closest to that
+            # billId, still newest-first (before=6, limit=3 → [9, 8, 7]).
+            page = rows[-limit:] if rows else []
+        else:
+            # closer to `after` (or the absolute newest when neither bound is set)
+            page = rows[:limit]
+        return httpx.Response(200, json={"code": "0", "data": page})
+
+    class _Limiter:
+        def acquire(self) -> None:
+            return None
+
+    def make_exchange() -> OkxExchange:
+        client = OkxClient(
+            api_key="test-key",
+            secret="test-secret",
+            passphrase="test-pass",
+            transport=httpx.MockTransport(handler),
+            limiter=_Limiter(),
+        )
+        return OkxExchange(client, min_notional=D("1"))
+
+    settings = make_settings(
+        kill_switch_path=str(tmp_path / "KILL"),
+        journal_path=str(tmp_path / "j.jsonl"),
+    )
+    KillSwitch(settings.kill_switch_path).rearm(operator="setup")
+    state = StateStore(tmp_path / "s.db")
+    ex = make_exchange()
+    engine = build_engine(exchange=ex, settings=settings, strategy=Flat(), state=state, fee_rate=D("0"))
+    engine.sync_exchange_fills()
+    # Cursor must not move on disk until the book is saved.
+    assert state.get_kv("fill_cursor") is None
+    engine._persist()
+    assert set(engine.book.applied) == {"old-1", "old-2"}
+    assert state.get_kv("fill_cursor") == "110"
+    state.close()
+    ex.client.close()
+
+    venue.extend(newer)
+    seen_before = len(seen_params)
+    applied_order: list[str] = []
+    state2 = StateStore(tmp_path / "s.db")
+    ex2 = make_exchange()
+    engine2 = build_engine(exchange=ex2, settings=settings, strategy=Flat(), state=state2, fee_rate=D("0"))
+    orig_apply = engine2.book.apply_fill
+
+    def _record_apply(fill, *args, **kwargs):  # type: ignore[no-untyped-def]
+        applied_order.append(fill.trade_id)
+        return orig_apply(fill, *args, **kwargs)
+
+    engine2.book.apply_fill = _record_apply  # type: ignore[method-assign]
+    assert state2.get_kv("fill_cursor") == "110"
+    engine2.sync_exchange_fills()
+    expected_new = [f"new-{i}" for i in range(1, 251)]
+    assert [tid for tid in applied_order if tid.startswith("new-")] == expected_new
+    assert applied_order.count("old-1") == 0 or engine2.book.applied == {"old-1", "old-2", *expected_new}
+    # Old fills must not be re-applied; new fills applied exactly once, in billId order.
+    assert applied_order == expected_new or [t for t in applied_order if t.startswith("new-")] == expected_new
+    assert len([t for t in applied_order if t.startswith("new-")]) == 250
+    assert set(engine2.book.applied) == {"old-1", "old-2", *expected_new}
+    restart_params = seen_params[seen_before:]
+    assert any(p.get("before") == "110" for p in restart_params)
+    assert all(p.get("after") != "110" and p.get("after") != "100" for p in restart_params if p.get("before") == "110")
+    # Disk cursor stays at the previously saved newest billId until persist.
+    assert state2.get_kv("fill_cursor") == "110"
+    engine2._persist()
+    assert state2.get_kv("fill_cursor") == "450"
+    state2.close()
+    ex2.client.close()
+
+    seen_before_third = len(seen_params)
+    applied_again: list[str] = []
+    state3 = StateStore(tmp_path / "s.db")
+    ex3 = make_exchange()
+    engine3 = build_engine(exchange=ex3, settings=settings, strategy=Flat(), state=state3, fee_rate=D("0"))
+    orig_apply3 = engine3.book.apply_fill
+
+    def _record_apply3(fill, *args, **kwargs):  # type: ignore[no-untyped-def]
+        applied_again.append(fill.trade_id)
+        return orig_apply3(fill, *args, **kwargs)
+
+    engine3.book.apply_fill = _record_apply3  # type: ignore[method-assign]
+    assert state3.get_kv("fill_cursor") == "450"
+    engine3.sync_exchange_fills()
+    assert applied_again == []
+    assert set(engine3.book.applied) == {"old-1", "old-2", *expected_new}
+    third_params = seen_params[seen_before_third:]
+    assert any(p.get("before") == "450" for p in third_params)
+    assert all(p.get("after") != "450" for p in third_params)
+    state3.close()
+    ex3.client.close()
 
 
 # ----- M9 supervise env + monitor loop -----

@@ -64,16 +64,25 @@ class OkxExchange(Exchange):
         self._instruments: dict[str, Instrument] = {}
         self._seen_trades: set[str] = set()
         self._fill_cursor: str | None = None
+        self._pending_fill_cursor: str | None = None
         self._new: list[Fill] = []
         self._purposes: dict[str, OrderPurpose] = {}
 
     @property
     def fill_cursor(self) -> str | None:
-        return self._fill_cursor
+        return self._pending_fill_cursor or self._fill_cursor
 
     def load_fill_cursor(self, cursor: str | None) -> None:
-        if cursor:
-            self._fill_cursor = cursor
+        # Restore the last *committed* cursor. A failed persist must not leave
+        # an in-memory newest-seen marker that would skip uncommitted fills.
+        self._fill_cursor = cursor or None
+        self._pending_fill_cursor = None
+
+    def commit_fill_cursor(self) -> None:
+        """Advance the committed cursor after the book has been saved."""
+        if self._pending_fill_cursor:
+            self._fill_cursor = self._pending_fill_cursor
+            self._pending_fill_cursor = None
 
     def server_time_ms(self) -> int:
         payload = self.client.request("GET", "/api/v5/public/time", auth=False, idempotent=True)
@@ -352,40 +361,102 @@ class OkxExchange(Exchange):
         return out
 
     def sync(self) -> None:
-        after: str | None = self._fill_cursor
-        seen_cursors: set[str] = set()
+        # OKX v5 pagination (https://www.okx.com/docs-v5/trick_en/ and
+        # GET /api/v5/trade/fills, /api/v5/trade/fills-history):
+        #   before=<billId> → records *newer* than billId (closest to it,
+        #                     newest-first on the page; exclusive)
+        #   after=<billId>  → records *earlier* than billId
+        # The committed cursor is the newest billId already in the book. Later
+        # syncs must use before= so new fills are not skipped. The in-memory
+        # cursor only becomes committed after save_book (commit_fill_cursor).
+        if self._fill_cursor:
+            pending = self._fetch_newer_fills(self._fill_cursor)
+        else:
+            pending = self._backfill_fills()
+        if pending:
+            self._pending_fill_cursor = pending
+
+    def _fetch_fills_page(self, *, after: str | None = None, before: str | None = None) -> list[dict[str, Any]]:
+        params = {"instType": "SPOT", "limit": "100"}
         if after:
-            seen_cursors.add(after)
+            params["after"] = after
+        if before:
+            params["before"] = before
+        payload = self.client.request(
+            "GET",
+            "/api/v5/trade/fills",
+            params=params,
+            auth=True,
+            idempotent=True,
+        )
+        ensure_ok(payload)
+        data = payload.get("data")
+        if not isinstance(data, list):
+            return []
+        return [row for row in data if isinstance(row, dict)]
+
+    def _ingest_page(self, rows: list[dict[str, Any]]) -> tuple[str, str, list[Fill]]:
+        """Return (newest_marker, oldest_marker, fills in response order)."""
+        fills: list[Fill] = []
+        newest = ""
+        oldest = ""
+        for row in rows:
+            trade_id = str(row.get("tradeId") or "")
+            marker = str(row.get("billId") or row.get("ts") or trade_id or "")
+            if not newest and marker:
+                newest = marker
+            if marker:
+                oldest = marker
+            if not trade_id or trade_id in self._seen_trades:
+                continue
+            self._seen_trades.add(trade_id)
+            fills.append(_fill_from_row(row))
+        return newest, oldest, fills
+
+    def _fetch_newer_fills(self, cursor: str) -> str | None:
+        before = cursor
+        seen: set[str] = set()
+        pending: str | None = None
+        collected: list[tuple[Any, str, Fill]] = []
         for _page in range(20):
-            params = {"instType": "SPOT", "limit": "100"}
-            if after:
-                params["after"] = after
-            payload = self.client.request(
-                "GET",
-                "/api/v5/trade/fills",
-                params=params,
-                auth=True,
-                idempotent=True,
-            )
-            ensure_ok(payload)
-            data = payload.get("data")
-            if not isinstance(data, list) or not data:
+            rows = self._fetch_fills_page(before=before)
+            if not rows:
                 break
-            last_marker = ""
-            for row in data:
-                if not isinstance(row, dict):
-                    continue
-                trade_id = str(row.get("tradeId") or "")
-                last_marker = str(row.get("billId") or row.get("ts") or trade_id or "")
-                if not trade_id or trade_id in self._seen_trades:
-                    continue
-                self._seen_trades.add(trade_id)
-                self._new.append(_fill_from_row(row))
-            if not last_marker or last_marker in seen_cursors:
+            newest, _oldest, fills = self._ingest_page(rows)
+            for fill in fills:
+                collected.append((fill.ts, fill.trade_id, fill))
+            if not newest or newest in seen:
                 break
-            seen_cursors.add(last_marker)
-            after = last_marker
-            self._fill_cursor = after
+            seen.add(newest)
+            pending = newest
+            before = newest
+            if len(rows) < 100:
+                break
+        collected.sort(key=lambda item: (item[0], item[1]))
+        self._new.extend(fill for _ts, _tid, fill in collected)
+        return pending
+
+    def _backfill_fills(self) -> str | None:
+        after: str | None = None
+        seen: set[str] = set()
+        pending_newest: str | None = None
+        collected: list[tuple[Any, str, Fill]] = []
+        for _page in range(20):
+            rows = self._fetch_fills_page(after=after)
+            if not rows:
+                break
+            newest, oldest, fills = self._ingest_page(rows)
+            if pending_newest is None and newest:
+                pending_newest = newest
+            for fill in fills:
+                collected.append((fill.ts, fill.trade_id, fill))
+            if not oldest or oldest in seen:
+                break
+            seen.add(oldest)
+            after = oldest
+        collected.sort(key=lambda item: (item[0], item[1]))
+        self._new.extend(fill for _ts, _tid, fill in collected)
+        return pending_newest
 
     def _orders_from(self, payload: dict[str, Any]) -> list[Order]:
         data = payload.get("data")

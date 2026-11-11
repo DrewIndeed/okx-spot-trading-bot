@@ -246,6 +246,24 @@ def test_running_lock_payload_names_tobias_and_v3_purpose():
     assert "6788" in text or "wedding" in text.lower()
 
 
+def test_h1_funding_index_is_t0_forward_only():
+    from tradingbot.eval.v3_paper import T0_BAR, funding_index_for_paper
+
+    idx = pd.date_range("2018-08-18", "2026-11-10", freq="D")
+    got = funding_index_for_paper(idx)
+    assert len(got) == 0  # last closed is still before T0
+    idx2 = pd.date_range("2026-11-01", "2026-11-20", freq="D")
+    got2 = funding_index_for_paper(idx2)
+    assert got2.min() >= T0_BAR
+    assert pd.Timestamp("2026-11-10") not in got2
+    assert pd.Timestamp("2026-11-11") in got2
+    crowd_idx = got2
+    from tradingbot.eval.v3_paper import crowd_from_rest_or_off
+    crowd, events = crowd_from_rest_or_off({}, crowd_idx, reason="rest_empty")
+    assert len(events) <= 2  # not one event per historical day
+    assert all(e.get("action") == "filter_OFF" for e in events)
+
+
 def test_cli_exposes_paper_start_status_stop_for_v3():
     from tradingbot.cli import build_parser
 

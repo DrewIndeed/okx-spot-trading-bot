@@ -249,6 +249,12 @@ def fetch_rest_funding_series(
     return out, events
 
 
+def funding_index_for_paper(index, *, t0=T0_BAR) -> pd.DatetimeIndex:
+    """H1 missing-day flags are only for T0-forward signal bars, never the pre-T0 history."""
+    idx = pd.DatetimeIndex(index)
+    return idx[idx >= pd.Timestamp(t0)]
+
+
 def crowd_from_rest_or_off(
     funding: dict[str, pd.Series],
     index: pd.DatetimeIndex,
@@ -256,8 +262,11 @@ def crowd_from_rest_or_off(
 ) -> tuple[pd.DataFrame, list[dict]]:
     """Build H1 crowding flags from REST series only. Missing day → filter OFF + event."""
     events: list[dict] = []
+    if len(index) == 0:
+        # No T0-forward signal bar yet (still waiting). Do not log pre-T0 misses.
+        return pd.DataFrame(), events
     empty = (not funding) or all((s is None) or (len(s) == 0) for s in funding.values())
-    if empty or len(index) == 0:
+    if empty:
         events.append(
             {
                 "type": "h1_funding_missing",
@@ -649,33 +658,35 @@ def run_v3_iteration(
         regime_state = "UNKNOWN"
 
     # H1 funding: REST at signal time only. Never archive, never backfill.
+    # Missing-day flags are T0-forward only so pre-T0 history cannot flood the event log.
     funding_events: list[dict] = []
     crowd = pd.DataFrame()
+    signal_index = funding_index_for_paper(panel["close"].index)
     try:
         if funding_fetch is not None:
-            fetched = funding_fetch(index=panel["close"].index, last=last)
+            fetched = funding_fetch(index=signal_index, last=last)
             if isinstance(fetched, tuple) and len(fetched) == 2 and isinstance(fetched[0], dict) and not any(
                 isinstance(v, pd.Series) for v in fetched[0].values()
             ) and fetched[0] == {}:
                 # empty series + events (tests / hard miss)
                 funding_series, funding_events = fetched
-                crowd, extra = crowd_from_rest_or_off(funding_series, panel["close"].index, reason="rest_empty")
+                crowd, extra = crowd_from_rest_or_off(funding_series, signal_index, reason="rest_empty")
                 funding_events = list(funding_events) + extra
             elif isinstance(fetched, tuple):
                 funding_series, funding_events = fetched
                 if funding_series and any(isinstance(v, pd.Series) for v in funding_series.values()):
-                    crowd, extra = crowd_from_rest_or_off(funding_series, panel["close"].index)
+                    crowd, extra = crowd_from_rest_or_off(funding_series, signal_index)
                     funding_events = list(funding_events) + extra
                 else:
-                    crowd, extra = crowd_from_rest_or_off(funding_series or {}, panel["close"].index, reason="rest_empty")
+                    crowd, extra = crowd_from_rest_or_off(funding_series or {}, signal_index, reason="rest_empty")
                     funding_events = list(funding_events) + extra
             else:
                 funding_series, funding_events = fetched, []
-                crowd, extra = crowd_from_rest_or_off(funding_series, panel["close"].index)
+                crowd, extra = crowd_from_rest_or_off(funding_series, signal_index)
                 funding_events = extra
         else:
             funding_series, fetch_events = fetch_rest_funding_series(dest_dir=dirs["state"])
-            crowd, extra = crowd_from_rest_or_off(funding_series, panel["close"].index)
+            crowd, extra = crowd_from_rest_or_off(funding_series, signal_index)
             funding_events = fetch_events + extra
     except Exception as e:
         funding_events.append(

@@ -686,8 +686,43 @@ def run_v3_iteration(
                 funding_events = extra
         else:
             funding_series, fetch_events = fetch_rest_funding_series(dest_dir=dirs["state"])
-            crowd, extra = crowd_from_rest_or_off(funding_series, signal_index)
-            funding_events = fetch_events + extra
+            from tradingbot.eval.v3_paper_funding import (
+                SEED_FILE,
+                archive_series_asof,
+                crowd_for_paper,
+                load_seed_chunks,
+                merge_seed_and_rest,
+                trailing_window_stats,
+            )
+
+            if SEED_FILE.exists():
+                chunks = load_seed_chunks()
+                asof = (last + pd.Timedelta(days=1)) if last is not None else (T0_BAR + pd.Timedelta(days=1))
+                arch = archive_series_asof(chunks, asof)
+                merged = merge_seed_and_rest(arch, funding_series)
+                crowd, extra = crowd_for_paper(merged, funding_series, signal_index)
+                funding_events = fetch_events + extra
+                t0_close = T0_BAR + pd.Timedelta(days=1)
+                arch_t0 = archive_series_asof(chunks, t0_close)
+                merged_t0 = merge_seed_and_rest(arch_t0, funding_series)
+                for inst, label in (("BTC-USDT-SWAP", "BTC"), ("ETH-USDT-SWAP", "ETH")):
+                    stats = trailing_window_stats(merged_t0.get(inst, pd.Series(dtype=float)), t0_close, days=365)
+                    notes.append(
+                        f"H1 p90 window at T0 ({label}): n_prints={stats['n_prints']} "
+                        f"actual_start={stats['actual_start']} "
+                        f"span_days={stats['span_days']:.1f} "
+                        f"(requested_start={stats['requested_start']}, 365d)."
+                    )
+            elif official:
+                errors.append(
+                    "H1 archive seed is missing at data/funding/h1_paper_seed/h1_funding_seed.json; "
+                    "refusing to run official paper on a REST-only ~90d window."
+                )
+                crowd, extra = crowd_from_rest_or_off(funding_series, signal_index, reason="seed_missing")
+                funding_events = fetch_events + extra
+            else:
+                crowd, extra = crowd_from_rest_or_off(funding_series, signal_index)
+                funding_events = fetch_events + extra
     except Exception as e:
         funding_events.append(
             {"type": "h1_funding_missing", "action": "filter_OFF", "reason": f"REST funding failed: {e}"}

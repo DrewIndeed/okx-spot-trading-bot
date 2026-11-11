@@ -1,0 +1,58 @@
+# Spot-only research engine. Keys are NEVER read from this file.
+# Live trading is not enabled by setting mode: live. The live CLI command
+# still requires --enable-live and OKX_LIVE_CONFIRM.
+
+mode: paper
+allocated_capital: "1000"
+max_allocated_capital: "1000"
+quote_ccy: USDT
+symbols:
+  - BTC-USDT
+  - ETH-USDT
+bar: 1D
+regime_symbol: BTC-USDT
+
+risk:
+  risk_per_trade: "0.0075"
+  max_concurrent_positions: 3
+  max_total_exposure_pct: "0.50"
+  per_coin_cap_pct: "0.25"
+  daily_loss_limit_pct: "0.03"
+  max_drawdown_pct: "0.15"
+  cooldown_bars_after_loss: 3
+
+fees:
+  taker_fee: "0.001"
+  backtest_fee_multiplier: "2"
+  paper_fee_multiplier: "1"
+  slippage_bps: "5"
+  partial_fill_ratio: "1"
+
+strategy:
+  # PLACEHOLDER pending a researched strategy specification.
+  name: donchian_atr
+  donchian_n: 20
+  atr_n: 14
+  atr_mult: "2"
+  regime_sma: 200
+
+okx:
+  rest_base: https://www.okx.com
+  ws_public: wss://ws.okx.com:8443/ws/v5/public
+  timeout_s: 10
+  max_retries: 5
+  rate_limit_per_sec: 5
+  min_notional_usdt: "1"
+
+telegram:
+  enabled: false
+
+state:
+  sqlite_path: data/state.db
+
+backtest:
+  oos_ratio: "0.30"
+  cache_dir: data/cache
+
+runtime:
+  poll_seconds: 30

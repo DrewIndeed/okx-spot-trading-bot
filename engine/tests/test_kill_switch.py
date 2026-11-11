@@ -11,6 +11,7 @@ from okxspot.killswitch import KillSwitch, KillSwitchError
 def test_trip_blocks_new_orders_and_persists(tmp_path: Path) -> None:
     path = tmp_path / "KILL_SWITCH"
     ks = KillSwitch(path)
+    ks.rearm(operator="setup")
     assert ks.is_tripped is False
     ks.trip("manual", cancel_open=False, at=datetime(2026, 11, 11, 10, 0, tzinfo=UTC))
     assert ks.is_tripped is True
@@ -25,7 +26,9 @@ def test_trip_blocks_new_orders_and_persists(tmp_path: Path) -> None:
 
 def test_restart_does_not_rearm(tmp_path: Path) -> None:
     path = tmp_path / "KILL_SWITCH"
-    KillSwitch(path).trip("watchdog", cancel_open=True)
+    setup = KillSwitch(path)
+    setup.rearm(operator="setup")
+    setup.trip("watchdog", cancel_open=True)
     again = KillSwitch(path)
     assert again.is_tripped is True
     assert again.cancel_open is True
@@ -37,6 +40,7 @@ def test_restart_does_not_rearm(tmp_path: Path) -> None:
 def test_manual_rearm_only(tmp_path: Path) -> None:
     path = tmp_path / "KILL_SWITCH"
     ks = KillSwitch(path)
+    ks.rearm(operator="setup")
     ks.trip("operator")
     ks.rearm(operator="cli")
     assert ks.is_tripped is False
@@ -55,3 +59,51 @@ def test_trip_invokes_optional_cancel(tmp_path: Path) -> None:
     assert ks2.is_tripped is True
     # loading a tripped switch must not cancel again
     assert cancelled == ["yes"]
+
+
+def test_b2_missing_file_is_tripped(tmp_path: Path) -> None:
+    path = tmp_path / "KILL_SWITCH"
+    assert not path.exists()
+    ks = KillSwitch(path)
+    assert ks.is_tripped is True
+    assert ks.allows_new_orders() is False
+
+
+def test_b2_delete_after_trip_stays_tripped(tmp_path: Path) -> None:
+    path = tmp_path / "KILL_SWITCH"
+    ks = KillSwitch(path)
+    ks.rearm(operator="setup")
+    assert ks.is_tripped is False
+    ks.trip("manual")
+    path.unlink()
+    again = KillSwitch(path)
+    assert again.is_tripped is True
+    assert again.allows_new_orders() is False
+
+
+def test_b2_nondict_or_truncated_is_not_clear(tmp_path: Path) -> None:
+    path = tmp_path / "KILL_SWITCH"
+    path.write_text("[]", encoding="utf-8")
+    assert KillSwitch(path).is_tripped is not False
+    path.write_text("{", encoding="utf-8")
+    assert KillSwitch(path).is_tripped is not False
+    path.write_text("true", encoding="utf-8")
+    assert KillSwitch(path).is_tripped is not False
+
+
+def test_b2_partial_write_does_not_lose_tripped_state(tmp_path: Path) -> None:
+    path = tmp_path / "KILL_SWITCH"
+    ks = KillSwitch(path)
+    ks.rearm(operator="setup")
+    ks.trip("persist-me")
+    # Simulate a crash mid-write: a sibling tmp is truncated; the real file must stay valid
+    # or the switch must fail closed — never report clear.
+    junk = path.with_name(path.name + ".tmp")
+    junk.write_text('{"tripped":', encoding="utf-8")
+    again = KillSwitch(path)
+    assert again.is_tripped is True
+    assert again.reason == "persist-me"
+    # If the committed file itself is truncated, still fail closed.
+    path.write_text('{"tripped":', encoding="utf-8")
+    broken = KillSwitch(path)
+    assert broken.is_tripped is not False

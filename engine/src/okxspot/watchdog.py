@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import subprocess
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -60,6 +61,8 @@ class Supervisor:
         sleeper: Callable[[float], None] | None = None,
         protected_pids: frozenset[int] | None = None,
         cwd: str | Path | None = None,
+        child_heartbeat_path: str | Path | None = None,
+        child_stale_seconds: float = 90.0,
     ) -> None:
         if max_restarts_per_hour < 1:
             raise ValueError("max_restarts_per_hour must be >= 1")
@@ -75,6 +78,8 @@ class Supervisor:
         self._sleeper = sleeper or _default_sleep
         self._protected = protected_pids if protected_pids is not None else frozenset({PROTECTED_PID})
         self.cwd = cwd
+        self.child_heartbeat_path = Path(child_heartbeat_path) if child_heartbeat_path else None
+        self.child_stale_seconds = float(child_stale_seconds)
         self.child: Any = None
         self._restart_at: list[float] = []
         self._backoff_index = 0
@@ -116,6 +121,30 @@ class Supervisor:
         self._restart_at = [t for t in self._restart_at if t >= cutoff]
         return len(self._restart_at)
 
+    def _terminate_child(self) -> None:
+        if self.child is None:
+            return
+        pid = int(getattr(self.child, "pid", 0) or 0)
+        if pid and (pid in self._protected or is_protected_pid(pid, read_cmdline(pid))):
+            return
+        if hasattr(self.child, "terminate"):
+            self.child.terminate()
+        elif pid:
+            os.kill(pid, signal.SIGTERM)
+
+    def _child_frozen(self) -> bool:
+        if self.child_heartbeat_path is None or not self.child_heartbeat_path.exists():
+            return False
+        try:
+            data = json.loads(self.child_heartbeat_path.read_text(encoding="utf-8"))
+            ts = datetime.fromisoformat(str(data.get("ts")))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            return True
+        age = self._now() - ts.timestamp()
+        return age > self.child_stale_seconds
+
     def run_until_stopped(self, max_cycles: int | None = None) -> None:
         self.spawn()
         cycles = 0
@@ -123,11 +152,30 @@ class Supervisor:
             cycles += 1
             if max_cycles is not None and cycles > max_cycles:
                 return
+            self.kill_switch.reload()
+            if self.kill_switch.is_tripped:
+                self._terminate_child()
+                self.alerter.send(
+                    "critical",
+                    f"kill switch tripped ({self.kill_switch.reason}); child stopped",
+                    event="kill_switch",
+                )
+                raise SupervisorError("kill switch tripped")
             rc = self.child.poll() if self.child is not None else 0
             if rc is None:
-                self.write_heartbeat()
-                self._sleeper(self.poll_seconds)
-                continue
+                if self._child_frozen():
+                    self.alerter.send("critical", "child heartbeat is stale; stopping child", event="restart")
+                    self._terminate_child()
+                    rc = self.child.poll() if self.child is not None else -1
+                    if rc is None:
+                        rc = -1
+                    # fall through to restart accounting
+                else:
+                    self.write_heartbeat()
+                    self._sleeper(self.poll_seconds)
+                    continue
+            if self.kill_switch.is_tripped:
+                raise SupervisorError("kill switch tripped")
             if self._restarts_in_window() >= self.max_restarts_per_hour:
                 self.kill_switch.trip("max_restarts_per_hour", source="watchdog")
                 self.alerter.send(
@@ -161,3 +209,37 @@ def _default_sleep(seconds: float) -> None:
     import time
 
     time.sleep(seconds)
+
+
+def monitor_heartbeat(
+    *,
+    heartbeat_path: str | Path,
+    kill_switch: KillSwitch,
+    max_age_seconds: float,
+    protected_pids: frozenset[int] | None = None,
+    now: Callable[[], float] | None = None,
+) -> bool:
+    """Fail closed if the supervisor heartbeat is stale. Never signals protected pids."""
+    protected = protected_pids if protected_pids is not None else frozenset({PROTECTED_PID})
+    path = Path(heartbeat_path)
+    clock = now or (lambda: datetime.now(UTC).timestamp())
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        ts = datetime.fromisoformat(str(data.get("ts")))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        age = clock() - ts.timestamp()
+        running = bool(data.get("running"))
+        pid = int(data.get("child_pid") or data.get("pid") or 0)
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        kill_switch.trip("stale_supervisor_heartbeat", source="monitor")
+        return True
+    if age <= max_age_seconds and running:
+        return False
+    if pid and pid not in protected and not is_protected_pid(pid, read_cmdline(pid) if pid else ""):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    kill_switch.trip("stale_supervisor_heartbeat", source="monitor")
+    return True

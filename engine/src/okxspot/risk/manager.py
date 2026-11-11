@@ -114,7 +114,7 @@ class RiskManager:
 
         if now.tzinfo is None:
             raise ValueError("pretrade timestamp must be timezone-aware")
-        if self.kill_switch is not None and self.kill_switch.is_tripped:
+        if self.kill_switch is not None and self.kill_switch.is_tripped and purpose is OrderPurpose.ENTRY:
             return reject("kill_switch")
         if self.halted and purpose in {OrderPurpose.ENTRY}:
             return reject("halted")
@@ -160,6 +160,7 @@ class RiskManager:
         instrument: Instrument,
         has_position: bool,
         fee_rate: Decimal,
+        worst_case_price: Decimal | None = None,
     ) -> RiskDecision:
         eq = sizing_equity(
             allocated_capital=allocated_capital,
@@ -204,10 +205,17 @@ class RiskManager:
             return reject("max_total_exposure")
         qty = min(qty, room / entry_price)
 
-        unit_cost = entry_price * (Decimal("1") + fee_rate)
+        cap_price = entry_price
+        if worst_case_price is not None and worst_case_price > cap_price:
+            cap_price = worst_case_price
+        unit_cost = cap_price * (Decimal("1") + fee_rate)
         if unit_cost <= 0:
             return reject("invalid_price")
         qty = min(qty, eq / unit_cost)
+        qty = min(qty, max_coin_notional / cap_price)
+        qty = min(qty, room / cap_price)
+        if self.cfg.max_notional is not None:
+            qty = min(qty, self.cfg.max_notional / cap_price)
 
         # Tick rounding can widen the stop. Resize so actual risk stays in budget.
         distance = entry_price - rounded_stop
@@ -215,8 +223,13 @@ class RiskManager:
         qty = round_qty(qty, instrument)
         if qty <= 0:
             return reject("below_lot_size")
-        if not meets_min_notional(qty, entry_price, instrument):
+        slipped = qty * cap_price
+        if self.cfg.max_notional is not None and slipped > self.cfg.max_notional:
+            return reject("max_notional")
+        if not meets_min_notional(qty, cap_price, instrument) and not meets_min_notional(qty, entry_price, instrument):
             return reject("min_notional")
+        if not meets_min_notional(qty, cap_price, instrument):
+            return reject("slippage_cap")
         actual_risk = qty * (entry_price - rounded_stop)
         return RiskDecision(True, qty, rounded_stop, "ok", actual_risk, eq)
 
@@ -231,6 +244,7 @@ class RiskManager:
             "cooldown_remaining": str(self.cooldown_remaining),
             "flatten_sent": "1" if self.flatten_sent else "0",
             "bar_index": str(self.bar_index),
+            "submit_times": json.dumps([ts.astimezone(UTC).isoformat() for ts in self._submit_times]),
         }
 
     def load_state(self, data: dict[str, str]) -> None:
@@ -245,6 +259,21 @@ class RiskManager:
         self.cooldown_remaining = int(data.get("cooldown_remaining") or "0")
         self.flatten_sent = data.get("flatten_sent") == "1"
         self.bar_index = int(data.get("bar_index") or "0")
+        raw_times = data.get("submit_times") or "[]"
+        try:
+            loaded_times = json.loads(raw_times)
+        except json.JSONDecodeError:
+            loaded_times = []
+        self._submit_times = []
+        if isinstance(loaded_times, list):
+            for item in loaded_times:
+                try:
+                    ts = datetime.fromisoformat(str(item))
+                except ValueError:
+                    continue
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=UTC)
+                self._submit_times.append(ts)
 
     def export_json(self) -> str:
         return json.dumps(self.export_state())

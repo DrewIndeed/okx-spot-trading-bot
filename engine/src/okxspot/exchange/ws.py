@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import queue
+import threading
+import time
 from collections.abc import Callable, Iterator
 from typing import Protocol, cast
 
@@ -75,28 +78,76 @@ def run_public_stream(
     sleep: Callable[[float], None],
     stop: Callable[[], bool],
     max_failures: int | None = None,
+    deadline: float | None = None,
 ) -> None:
     """Subscribe and dispatch until ``stop`` or the socket ends cleanly.
 
     Disconnects back off from 1s to 30s. ``max_failures`` is for tests.
+    ``deadline`` is a monotonic timestamp; the loop returns when it is reached
+    even if the socket is idle waiting for the next confirmed bar.
     """
     delay = 1.0
     failures = 0
-    while not stop():
+
+    def timed_out() -> bool:
+        return deadline is not None and time.monotonic() >= deadline
+
+    while not stop() and not timed_out():
         try:
             with connect(url) as ws:
                 ws.send(json.dumps({"op": "subscribe", "args": args}))
-                for raw in ws:
-                    if stop():
-                        return
-                    for event in parse_public_message(raw):
-                        handler(event)
+                _drain_socket(ws, handler, stop, deadline)
+                if stop() or timed_out():
+                    return
                 return
         except Exception:
+            if timed_out() or stop():
+                return
             failures += 1
             if max_failures is not None and failures >= max_failures:
                 raise
-            if stop():
-                return
             sleep(delay)
             delay = min(delay * 2, 30.0)
+
+
+def _drain_socket(
+    ws: Socket,
+    handler: Callable[[WsEvent], None],
+    stop: Callable[[], bool],
+    deadline: float | None,
+) -> None:
+    incoming: queue.Queue[tuple[str, object]] = queue.Queue()
+
+    def reader() -> None:
+        try:
+            if hasattr(ws, "recv"):
+                while True:
+                    remaining = None if deadline is None else max(0.05, deadline - time.monotonic())
+                    try:
+                        raw = ws.recv(timeout=remaining)  # type: ignore[attr-defined]
+                    except TypeError:
+                        raw = ws.recv()  # type: ignore[attr-defined]
+                    incoming.put(("ok", raw))
+            else:
+                for raw in ws:
+                    incoming.put(("ok", raw))
+                incoming.put(("end", None))
+        except Exception as exc:
+            incoming.put(("err", exc))
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    while not stop() and (deadline is None or time.monotonic() < deadline):
+        timeout = 0.2 if deadline is None else max(0.05, min(0.2, deadline - time.monotonic()))
+        try:
+            kind, payload = incoming.get(timeout=timeout)
+        except queue.Empty:
+            continue
+        if kind == "end":
+            return
+        if kind == "err":
+            raise payload  # type: ignore[misc]
+        if stop():
+            return
+        for event in parse_public_message(str(payload)):
+            handler(event)

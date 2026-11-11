@@ -13,6 +13,7 @@ LIVE_CONFIRM_ALIAS_ENV = "LIVE_CONFIRM"
 LIVE_CONFIRM_ALIAS_VALUE = "I_ACCEPT"
 ACCEPTED_LIVE_CONFIRMS = frozenset({LIVE_CONFIRM_VALUE, LIVE_CONFIRM_ALIAS_VALUE})
 NETWORK_DISABLE_ENV = "OKXSPOT_DISABLE_NETWORK"
+SUPERVISED_ENV = "OKXSPOT_SUPERVISED"
 
 
 def confirm_live_env(env: Mapping[str, str]) -> str | None:
@@ -86,7 +87,9 @@ def validate_account_restrictions(account: Any, settings: Any) -> None:
     required_label = getattr(settings, "required_account_label", None) or None
     required_uid = getattr(settings, "required_uid", None) or None
     ip = getattr(account, "ip", None)
-    if require_ip and not ip:
+    ip_text = str(ip or "").strip()
+    wild = {"*", "0.0.0.0", "0.0.0.0/0", "::/0"}
+    if require_ip and (not ip_text or ip_text in wild or any(part.strip() in wild for part in ip_text.split(","))):
         raise LiveGuardError(
             "API key is not IP-restricted (or IP restriction was not detectable); refusing live mode"
         )

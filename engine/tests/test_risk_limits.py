@@ -164,6 +164,7 @@ def test_daily_loss_is_utc_day_and_blocks_entries_not_exits() -> None:
 
 def test_file_kill_switch_blocks_entries_in_pretrade(tmp_path: Path) -> None:
     ks = KillSwitch(tmp_path / "KILL")
+    ks.rearm(operator="setup")
     mgr = RiskManager(make_settings().risk, kill_switch=ks)
     now = datetime(2026, 1, 1, tzinfo=UTC)
     assert mgr.pretrade(

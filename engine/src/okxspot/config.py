@@ -204,6 +204,28 @@ class AlertSettings(BaseModel):
     file_path: str | None = None
 
 
+class StaleSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tolerance_sec: float = 900
+    max_clock_skew_ms: int = 5000
+    max_price_move_pct: Decimal = Decimal("0.15")
+    max_gap_bars: int = 2
+
+    @field_validator("max_price_move_pct", mode="before")
+    @classmethod
+    def _parse_move(cls, value: object) -> Decimal:
+        return _dec(value)
+
+    @field_validator("max_gap_bars")
+    @classmethod
+    def _gap(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("max_gap_bars must be >= 1")
+        return value
+
+
+
 class Settings(BaseModel):
 
     """Engine configuration.
@@ -223,6 +245,9 @@ class Settings(BaseModel):
     required_uid: str | None = None
     kill_switch_path: str = "state/KILL_SWITCH"
     heartbeat_path: str = "state/heartbeat.json"
+    child_heartbeat_path: str = "state/heartbeat.child.json"
+    journal_path: str = "state/orders.jsonl"
+    allow_placeholder_live: bool = False
     allocated_capital: Decimal
     max_allocated_capital: Decimal
     quote_ccy: str = "USDT"
@@ -238,6 +263,7 @@ class Settings(BaseModel):
     state: StateSettings = StateSettings()
     backtest: BacktestSettings = BacktestSettings()
     runtime: RuntimeSettings = RuntimeSettings()
+    stale: StaleSettings = StaleSettings()
 
     @field_validator("allocated_capital", "max_allocated_capital", mode="before")
     @classmethod
@@ -249,6 +275,8 @@ class Settings(BaseModel):
     def _positive_caps(cls, value: Decimal) -> Decimal:
         if value <= 0:
             raise ValueError("capital caps must be positive")
+        if value == Decimal("6788"):
+            raise ValueError("6788 USDT is reserved wedding funds and cannot be used as allocated capital")
         return value
 
     @field_validator("symbols")

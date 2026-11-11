@@ -63,6 +63,7 @@ class OkxExchange(Exchange):
         self.bar = bar
         self._instruments: dict[str, Instrument] = {}
         self._seen_trades: set[str] = set()
+        self._fill_cursor: str | None = None
         self._new: list[Fill] = []
         self._purposes: dict[str, OrderPurpose] = {}
 
@@ -343,25 +344,38 @@ class OkxExchange(Exchange):
         return out
 
     def sync(self) -> None:
-        payload = self.client.request(
-            "GET",
-            "/api/v5/trade/fills",
-            params={"instType": "SPOT"},
-            auth=True,
-            idempotent=True,
-        )
-        ensure_ok(payload)
-        data = payload.get("data")
-        if not isinstance(data, list):
-            return
-        for row in data:
-            if not isinstance(row, dict):
-                continue
-            trade_id = str(row.get("tradeId") or "")
-            if not trade_id or trade_id in self._seen_trades:
-                continue
-            self._seen_trades.add(trade_id)
-            self._new.append(_fill_from_row(row))
+        after: str | None = None
+        seen_cursors: set[str] = set()
+        for _page in range(20):
+            params = {"instType": "SPOT", "limit": "100"}
+            if after:
+                params["after"] = after
+            payload = self.client.request(
+                "GET",
+                "/api/v5/trade/fills",
+                params=params,
+                auth=True,
+                idempotent=True,
+            )
+            ensure_ok(payload)
+            data = payload.get("data")
+            if not isinstance(data, list) or not data:
+                break
+            last_marker = ""
+            for row in data:
+                if not isinstance(row, dict):
+                    continue
+                trade_id = str(row.get("tradeId") or "")
+                last_marker = str(row.get("billId") or row.get("ts") or trade_id or "")
+                if not trade_id or trade_id in self._seen_trades:
+                    continue
+                self._seen_trades.add(trade_id)
+                self._new.append(_fill_from_row(row))
+            if not last_marker or last_marker in seen_cursors:
+                break
+            seen_cursors.add(last_marker)
+            after = last_marker
+            self._fill_cursor = after
 
     def _orders_from(self, payload: dict[str, Any]) -> list[Order]:
         data = payload.get("data")

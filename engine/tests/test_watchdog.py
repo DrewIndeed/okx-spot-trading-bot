@@ -41,6 +41,7 @@ class FakeProc:
 def test_heartbeat_is_written(tmp_path: Path) -> None:
     hb = tmp_path / "heartbeat.json"
     ks = KillSwitch(tmp_path / "KILL")
+    ks.rearm(operator="setup")
     alerts = MemoryAlerter()
     clock = {"t": 1_700_000_000.0}
 
@@ -67,6 +68,7 @@ def test_heartbeat_is_written(tmp_path: Path) -> None:
 
 def test_max_restarts_per_hour_trips_kill_switch_and_alerts(tmp_path: Path) -> None:
     ks = KillSwitch(tmp_path / "KILL")
+    ks.rearm(operator="setup")
     alerts = MemoryAlerter()
     clock = {"t": 1_700_000_000.0}
     launches: list[int] = []

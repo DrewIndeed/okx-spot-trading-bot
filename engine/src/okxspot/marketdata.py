@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import ssl
+import time
 from collections.abc import Callable
 from typing import Protocol
 
@@ -71,16 +72,16 @@ class PublicFeed:
         self.transport = "websocket"
         self.fallback_reason: str | None = None
 
-    def next_candles(self) -> dict[str, list[Candle]]:
+    def next_candles(self, timeout: float | None = None) -> dict[str, list[Candle]]:
         if self.transport == "websocket":
             try:
-                candles = self._read_ws()
+                candles = self._read_ws(timeout=timeout)
             except WsFallbackError as exc:
                 self._fall_back(str(exc))
             else:
-                if candles:
-                    return candles
-                self._fall_back("websocket produced no candles")
+                # A timeout with only unconfirmed (or no) bars must not block the
+                # trading loop and must not drop a healthy socket to REST.
+                return candles
         return self._read_rest()
 
     def _fall_back(self, reason: str) -> None:
@@ -95,11 +96,15 @@ class PublicFeed:
             out[symbol] = candles
         return out
 
-    def _read_ws(self) -> dict[str, list[Candle]]:
+    def _read_ws(self, timeout: float | None = None) -> dict[str, list[Candle]]:
         collected: list[WsEvent] = []
+        deadline = time.monotonic() + (timeout if timeout is not None else 5.0)
 
         def stop() -> bool:
-            return len(collected) >= len(self.symbols)
+            if time.monotonic() >= deadline:
+                return True
+            insts = {event.candle.inst_id for event in collected if event.candle is not None}
+            return len(insts) >= len(self.symbols)
 
         def handler(event: WsEvent) -> None:
             if event.kind == "candle" and event.candle is not None and event.candle.confirmed:
@@ -115,6 +120,7 @@ class PublicFeed:
                 sleep=self._sleep,
                 stop=stop,
                 max_failures=1,
+                deadline=deadline,
             )
         except Exception as exc:
             if is_ws_fallback_error(exc):
@@ -125,6 +131,4 @@ class PublicFeed:
             if event.candle is None:
                 continue
             grouped.setdefault(event.candle.inst_id, []).append(event.candle)
-        if not any(grouped.values()):
-            return {}
         return grouped

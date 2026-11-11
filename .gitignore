@@ -19,3 +19,6 @@ state/
 *.egg-info/
 engine/artifacts/
 RUNNING.lock
+
+# Overnight paper soak state/logs/pidfiles (live-ready worktree only)
+soak_overnight/

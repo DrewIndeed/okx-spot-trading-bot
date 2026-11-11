@@ -11,6 +11,7 @@ from okxspot.errors import AmbiguousOrderError, LiveGuardError, OkxApiError
 from okxspot.exchange.rate_limit import TokenBucket, backoff_seconds
 from okxspot.exchange.signing import build_request_path, format_okx_timestamp, okx_sign
 from okxspot.demo import DEMO_HEADER, DEMO_HEADER_VALUE
+from okxspot.redact import register_secret
 from okxspot.safety import NETWORK_DISABLE_ENV
 
 # Business codes that mean "try again", the request was not accepted.
@@ -54,6 +55,18 @@ class OkxClient:
         self.limiter = limiter or TokenBucket(rate_limit_per_sec)
         self.simulated = bool(simulated)
         self._http = httpx.Client(base_url=self.base_url, timeout=timeout_s, transport=transport)
+        register_secret(self.api_key)
+        register_secret(self.secret)
+        register_secret(self.passphrase)
+
+    def __repr__(self) -> str:
+        return (
+            f"OkxClient(base_url={self.base_url!r}, api_key={'set' if self.api_key else 'unset'}, "
+            "secret=***, passphrase=***, simulated=" + str(self.simulated) + ")"
+        )
+
+    def __str__(self) -> str:
+        return self.__repr__()
 
     @property
     def uses_mock_transport(self) -> bool:

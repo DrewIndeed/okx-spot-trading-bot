@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,7 +15,10 @@ class KillSwitchError(OkxSpotError):
 
 
 class KillSwitch:
-    """File-backed kill switch. Tripped state survives restarts; only a manual re-arm clears it."""
+    """File-backed kill switch. Missing or corrupt files are treated as tripped.
+
+    Writes are atomic (tmp → fsync → rename). Only a manual re-arm clears it.
+    """
 
     def __init__(
         self,
@@ -23,19 +28,74 @@ class KillSwitch:
     ) -> None:
         self.path = Path(path)
         self._on_cancel_open = on_cancel_open
-        self._state: dict[str, object] = {"tripped": False, "reason": "", "cancel_open": False}
+        self._cancelled = False
+        self._state: dict[str, object] = {
+            "tripped": True,
+            "reason": "missing",
+            "cancel_open": False,
+            "source": "missing",
+        }
+        self._load()
+
+    def reload(self) -> None:
+        """Re-read the file so a CLI trip is visible to a running process."""
         self._load()
 
     def _load(self) -> None:
         if not self.path.exists():
+            self._state = {
+                "tripped": True,
+                "reason": self._state.get("reason") or "missing",
+                "cancel_open": bool(self._state.get("cancel_open")),
+                "source": "missing",
+            }
             return
-        raw = json.loads(self.path.read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            self._state.update(raw)
+        try:
+            raw = self.path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            self._state = {
+                "tripped": True,
+                "reason": "corrupt",
+                "cancel_open": False,
+                "source": "corrupt",
+            }
+            return
+        if not isinstance(data, dict) or not isinstance(data.get("tripped"), bool):
+            self._state = {
+                "tripped": True,
+                "reason": "invalid",
+                "cancel_open": False,
+                "source": "corrupt",
+            }
+            return
+        self._state = dict(data)
 
     def _dump(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self._state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        payload = json.dumps(self._state, indent=2, sort_keys=True) + "\n"
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{self.path.name}.", dir=str(self.path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_name, self.path)
+            # Best-effort fsync of the directory so the rename itself is durable.
+            try:
+                dir_fd = os.open(str(self.path.parent), os.O_DIRECTORY)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+            except OSError:
+                pass
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
 
     @property
     def is_tripped(self) -> bool:
@@ -60,7 +120,6 @@ class KillSwitch:
         at: datetime | None = None,
         source: str = "manual",
     ) -> None:
-        already = self.is_tripped
         moment = at or datetime.now(UTC)
         if moment.tzinfo is None:
             moment = moment.replace(tzinfo=UTC)
@@ -73,14 +132,12 @@ class KillSwitch:
             "rearmed": False,
         }
         self._dump()
-        if cancel_open and not already and self._on_cancel_open is not None:
+        if cancel_open and not self._cancelled and self._on_cancel_open is not None:
             self._on_cancel_open()
+            self._cancelled = True
 
     def rearm(self, *, operator: str = "manual") -> None:
-        if not self.is_tripped and not self.path.exists():
-            self._state = {"tripped": False, "reason": "", "cancel_open": False, "rearmed": True}
-            self._dump()
-            return
+        previous = self.reason
         self._state = {
             "tripped": False,
             "reason": "",
@@ -88,8 +145,10 @@ class KillSwitch:
             "rearmed": True,
             "rearmed_by": operator,
             "rearmed_ts": datetime.now(UTC).isoformat(),
-            "previous_reason": self.reason,
+            "previous_reason": previous,
+            "source": "rearm",
         }
+        self._cancelled = False
         self._dump()
 
     def rearm_if_stale(self) -> None:

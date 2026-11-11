@@ -195,7 +195,7 @@ class StateStore:
             out[str(row["client_order_id"])] = (stop, risk)
         return out
 
-    def set_kv(self, key: str, value: str) -> None:
+    def _set_kv(self, key: str, value: str, *, commit: bool = True) -> None:
         self._conn.execute(
             """
             INSERT INTO kv (key, value) VALUES (?, ?)
@@ -203,7 +203,11 @@ class StateStore:
             """,
             (key, value),
         )
-        self._conn.commit()
+        if commit:
+            self._conn.commit()
+
+    def set_kv(self, key: str, value: str) -> None:
+        self._set_kv(key, value, commit=True)
 
     def get_kv(self, key: str) -> str | None:
         row = self._conn.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
@@ -212,31 +216,43 @@ class StateStore:
         return str(row["value"])
 
     def save_book(self, book: PortfolioBook) -> None:
-        self.set_kv("allocated_capital", dec_str(book.allocated_capital) or "0")
-        self.set_kv("realized_pnl", dec_str(book.realized_pnl) or "0")
-        self._conn.execute("DELETE FROM positions")
-        for pos in book.positions.values():
-            self._conn.execute(
-                """
-                INSERT INTO positions (
-                    inst_id, qty, avg_price, stop_price, initial_risk_quote,
-                    realized_fragment, opened_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    pos.inst_id,
-                    dec_str(pos.qty),
-                    dec_str(pos.avg_price),
-                    "" if pos.stop_price is None else dec_str(pos.stop_price),
-                    dec_str(pos.initial_risk_quote),
-                    dec_str(pos.realized_fragment),
-                    pos.opened_at.isoformat(),
-                ),
-            )
-        self._conn.execute("DELETE FROM applied_trades")
-        for trade_id in book.applied:
-            self._conn.execute("INSERT INTO applied_trades (trade_id) VALUES (?)", (trade_id,))
-        self._conn.commit()
+        # One transaction for kv + positions + applied_trades so a mid-write crash
+        # cannot leave a new realized_pnl with the old position set.
+        try:
+            self._conn.execute("BEGIN")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self._set_kv("allocated_capital", dec_str(book.allocated_capital) or "0", commit=False)
+            self._set_kv("realized_pnl", dec_str(book.realized_pnl) or "0", commit=False)
+            if getattr(self, "_crash_after_kv", False):
+                raise RuntimeError("injected crash after kv")
+            self._conn.execute("DELETE FROM positions")
+            for pos in book.positions.values():
+                self._conn.execute(
+                    """
+                    INSERT INTO positions (
+                        inst_id, qty, avg_price, stop_price, initial_risk_quote,
+                        realized_fragment, opened_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        pos.inst_id,
+                        dec_str(pos.qty),
+                        dec_str(pos.avg_price),
+                        "" if pos.stop_price is None else dec_str(pos.stop_price),
+                        dec_str(pos.initial_risk_quote),
+                        dec_str(pos.realized_fragment),
+                        pos.opened_at.isoformat(),
+                    ),
+                )
+            self._conn.execute("DELETE FROM applied_trades")
+            for trade_id in book.applied:
+                self._conn.execute("INSERT INTO applied_trades (trade_id) VALUES (?)", (trade_id,))
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def load_book(self, allocated_capital: Decimal) -> PortfolioBook:
         stored = self.get_kv("allocated_capital")

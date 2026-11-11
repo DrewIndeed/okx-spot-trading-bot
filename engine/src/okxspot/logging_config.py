@@ -5,6 +5,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from okxspot.redact import redact_text
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -19,7 +21,7 @@ class JsonFormatter(logging.Formatter):
             payload.update(fields)
         if record.exc_info:
             payload["exc"] = self.formatException(record.exc_info)
-        return json.dumps(payload, default=str)
+        return redact_text(json.dumps(payload, default=str))
 
 
 def configure_logging(level: str = "INFO") -> None:

@@ -11,6 +11,7 @@ from typing import Protocol
 import httpx
 
 from okxspot.config import Settings
+from okxspot.redact import register_secret
 
 log = logging.getLogger("okxspot.alert")
 
@@ -55,6 +56,7 @@ class TelegramAlerter:
         self._chat_id = chat_id
         self._client = client or httpx.Client(timeout=10)
         self._owns_client = client is None
+        register_secret(token)
 
     def send(self, level: str, message: str, event: str | None = None) -> None:
         url = f"https://api.telegram.org/bot{self._token}/sendMessage"
@@ -65,8 +67,8 @@ class TelegramAlerter:
                 json={"chat_id": self._chat_id, "text": text},
             )
             response.raise_for_status()
-        except httpx.HTTPError:
-            log.error("telegram delivery failed")
+        except httpx.HTTPError as exc:
+            log.error("telegram delivery failed: %s", type(exc).__name__)
 
     def close(self) -> None:
         if self._owns_client:

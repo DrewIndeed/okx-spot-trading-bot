@@ -14,7 +14,7 @@ from okxspot.logging_config import configure_logging
 from okxspot.demo import demo_keys_from_env, missing_demo_keys_message
 from okxspot.alerts import build_alerter
 from okxspot.killswitch import KillSwitch
-from okxspot.watchdog import PROTECTED_PID, Supervisor
+from okxspot.watchdog import PROTECTED_PID, Supervisor, monitor_heartbeat
 from okxspot.runtime import (
     prepare_live,
     run_backtest,
@@ -69,6 +69,10 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
     sup.add_argument("--config", required=True)
     sup.add_argument("--protect-pid", type=int, default=PROTECTED_PID)
     sup.add_argument("command", nargs=argparse.REMAINDER)
+
+    mon = sub.add_parser("monitor", help="fail closed if the supervisor heartbeat is stale")
+    mon.add_argument("--config", required=True)
+    mon.add_argument("--max-age", type=float, default=90.0)
 
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
@@ -147,9 +151,20 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
                 kill_switch=KillSwitch(settings.kill_switch_path),
                 alerter=build_alerter(settings),
                 protected_pids=frozenset({int(args.protect_pid), PROTECTED_PID}),
+                child_heartbeat_path=settings.child_heartbeat_path,
             )
             supervisor.run_until_stopped()
             return 0
+        if args.cmd == "monitor":
+            settings = load_settings(args.config)
+            tripped = monitor_heartbeat(
+                heartbeat_path=settings.heartbeat_path,
+                kill_switch=KillSwitch(settings.kill_switch_path),
+                max_age_seconds=args.max_age,
+                protected_pids=frozenset({PROTECTED_PID}),
+            )
+            print("monitor: stale heartbeat; kill switch tripped" if tripped else "monitor: heartbeat ok")
+            return 1 if tripped else 0
     except LiveGuardError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -97,11 +97,13 @@ def test_ambiguous_submit_returns_existing_order(tmp_path) -> None:  # type: ign
 
 
 def test_ambiguous_submit_retries_once_when_missing(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    # Sofia M2: after AmbiguousOrderError, park UNKNOWN and do not resend.
     ex = FlakyMissing()
     state = StateStore(tmp_path / "s.db")
     order = OrderManager(ex, state).submit(_req())
     assert order.client_order_id.startswith("c")
-    assert ex.place_calls == 2
+    assert ex.place_calls == 1
+    assert order.status is OrderStatus.UNKNOWN
     state.close()
 
 
@@ -136,6 +138,6 @@ def test_second_ambiguous_failure_propagates(tmp_path) -> None:  # type: ignore[
             raise AmbiguousOrderError("down")
 
     state = StateStore(tmp_path / "s.db")
-    with pytest.raises(AmbiguousOrderError):
-        OrderManager(Always(), state).submit(_req())
+    order = OrderManager(Always(), state).submit(_req())
+    assert order.status is OrderStatus.UNKNOWN
     state.close()

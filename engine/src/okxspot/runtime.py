@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import json
+import os
 import time
-from collections.abc import Mapping
-from datetime import datetime
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 from okxspot.alerts import Alerter, build_alerter
 from okxspot.backtest.report import write_backtest_report
 from okxspot.backtest.session import SessionResult, build_strategy, run_session
 from okxspot.config import Settings
+from okxspot.errors import LiveGuardError
+from okxspot.killswitch import KillSwitch
 from okxspot.demo_data import synthetic_market
 from okxspot.engine import TradingEngine, build_engine, restore_paper
 from okxspot.exchange.okx_client import OkxClient
@@ -20,6 +25,7 @@ from okxspot.logging_config import Log
 from okxspot.marketdata import PublicFeed
 from okxspot.exchange.okx_parse import AccountConfig
 from okxspot.safety import (
+    SUPERVISED_ENV,
     OkxKeys,
     confirm_live_env,
     read_okx_keys,
@@ -27,7 +33,9 @@ from okxspot.safety import (
     validate_live_preconditions,
     validate_permissions,
 )
+from okxspot.stale import StaleDataError
 from okxspot.state import StateStore
+from okxspot.strategy import donchian
 
 log = Log("okxspot.runtime")
 
@@ -59,8 +67,64 @@ def fetch_permissions(client: OkxClient, settings: Settings) -> set[str]:
     return fetch_account_config(client, settings).permissions
 
 
+
+def assert_start_allowed(settings: Settings) -> None:
+    """Refuse paper/live start while the file kill switch is tripped or missing."""
+    ks = KillSwitch(settings.kill_switch_path)
+    if ks.is_tripped:
+        raise LiveGuardError(
+            f"kill switch is tripped ({ks.reason or 'missing'}); requires a manual re-arm"
+        )
+
+
+def require_supervisor(env: Mapping[str, str]) -> None:
+    if str(env.get(SUPERVISED_ENV) or "").strip() not in {"1", "true", "yes", "on"}:
+        raise LiveGuardError(
+            f"long-running live mode requires a supervisor ({SUPERVISED_ENV}=1)"
+        )
+
+
+def assert_live_strategy(settings: Settings) -> None:
+    if settings.allow_placeholder_live:
+        return
+    if getattr(donchian, "IS_PLACEHOLDER", False) and settings.strategy.name == "donchian_atr":
+        raise LiveGuardError("refusing live start: donchian_atr is a placeholder strategy")
+
+
+def maybe_recheck_account(engine: TradingEngine, settings: Settings, *, account: AccountConfig, total_eq: Decimal | None = None) -> None:
+    """Mid-run account-config changes must trip the kill switch, not be ignored."""
+    try:
+        validate_account_restrictions(account, settings)
+        cap = settings.max_allocated_capital
+        if total_eq is not None and cap > 0 and total_eq > cap * Decimal("10"):
+            raise LiveGuardError("account totalEq far exceeds allocated capital")
+    except LiveGuardError as exc:
+        if engine.kill_switch is not None:
+            engine.kill_switch.trip(str(exc), source="account_recheck")
+        engine.risk.halted = True
+        engine.risk.halt_reason = "account_recheck"
+        engine.alerter.send("critical", f"account recheck failed: {exc}", event="kill_switch")
+
+
+def _write_child_heartbeat(settings: Settings, now: datetime) -> None:
+    path = Path(settings.child_heartbeat_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "ts": now.astimezone(UTC).isoformat() if now.tzinfo else now.replace(tzinfo=UTC).isoformat(),
+        "pid": os.getpid(),
+        "running": True,
+    }
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+
 def prepare_live(settings: Settings, *, enable_live_flag: bool, env: Mapping[str, str]) -> OkxClient:
     """Run every live gate before any order can be built."""
+    if settings.mode != "live":
+        raise LiveGuardError("live mode requires settings.mode == 'live'")
+    require_supervisor(env)
+    assert_live_strategy(settings)
+    if not settings.required_uid or not settings.required_account_label:
+        raise LiveGuardError("live mode requires required_uid and required_account_label")
     validate_live_preconditions(
         enable_live_flag=enable_live_flag,
         live_enabled=settings.live_enabled,
@@ -68,6 +132,7 @@ def prepare_live(settings: Settings, *, enable_live_flag: bool, env: Mapping[str
         allocated_capital=settings.allocated_capital,
         max_allocated_capital=settings.max_allocated_capital,
     )
+    assert_start_allowed(settings)
     keys = read_okx_keys(env)
     client = connect_okx(settings, keys)
     account = fetch_account_config(client, settings)
@@ -133,6 +198,7 @@ def run_backtest_history(
 def run_paper_loop(settings: Settings, *, once: bool, demo: bool) -> SessionResult | None:
     if demo:
         return run_demo(settings)
+    assert_start_allowed(settings)
     feed_exchange = _public_okx(settings)
     feed = PublicFeed(
         feed_exchange,
@@ -157,6 +223,7 @@ def run_paper_loop(settings: Settings, *, once: bool, demo: bool) -> SessionResu
 
 
 def run_live_loop(settings: Settings, client: OkxClient, *, once: bool) -> None:
+    assert_start_allowed(settings)
     exchange = OkxExchange(
         client,
         quote_ccy=settings.quote_ccy,
@@ -201,19 +268,61 @@ def _loop(
     *,
     once: bool,
     live: bool,
+    now: Callable[[], datetime] | None = None,
 ) -> None:
+    clock = now or (lambda: datetime.now(UTC))
     while True:
-        candles = feed.next_candles()
-        if feed.transport == "rest" and feed.fallback_reason:
+        moment = clock()
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        try:
+            _write_child_heartbeat(settings, moment)
+        except OSError:
+            pass
+        engine.apply_kill_switch()
+        try:
+            candles = feed.next_candles(timeout=settings.runtime.poll_seconds)
+        except TypeError:
+            candles = feed.next_candles()
+        if getattr(feed, "transport", None) == "rest" and getattr(feed, "fallback_reason", None):
             engine.alerter.send(
                 "warning",
                 f"market data is on REST polling after websocket failure: {feed.fallback_reason}",
             )
             feed.fallback_reason = None
-        engine.ingest_latest(candles)
-        if live:
-            engine.sync_exchange_fills()
-            engine.enforce_software_stops()
+        # Sync, software stops, and flatten retries must run even when the
+        # feed only has unconfirmed mid-session bars.
+        engine.sync_exchange_fills()
+        engine.enforce_software_stops()
+        tripped = engine.kill_switch is not None and engine.kill_switch.is_tripped
+        if (engine.risk.halted or tripped) and engine.book.positions:
+            reason = engine.risk.halt_reason or (engine.kill_switch.reason if engine.kill_switch else "halt")
+            engine.force_flatten(reason)
+        tradeable = True
+        if engine.stale is not None:
+            try:
+                last_price = None
+                # Prefer a live ticker when present; a failure is not treated as stale here
+                # (software stops already fail closed on ticker errors).
+                try:
+                    symbol = settings.symbols[0]
+                    last_price = engine.exchange.get_ticker(symbol).last
+                except Exception:
+                    last_price = None
+                series: list = []
+                for bars in candles.values():
+                    series.extend(bars)
+                engine.stale.assert_tradeable(
+                    candles=series,
+                    now=moment,
+                    server_time_ms=engine.exchange.server_time_ms(),
+                    last_price=last_price,
+                )
+            except StaleDataError as exc:
+                tradeable = False
+                engine.alerter.send("warning", f"stale data: {exc}", event="stale_data")
+        if tradeable and not tripped and not engine.risk.halted:
+            engine.ingest_latest(candles)
         engine.orders.reconcile()
         if once:
             return

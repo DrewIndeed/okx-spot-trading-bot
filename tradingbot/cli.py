@@ -358,6 +358,11 @@ def run_paper_iteration(cfg: Config, *, strategy: str = "d1", update: bool = Tru
         from tradingbot.strategies.spec_v2_common import OFFICIAL_RUN_ID
         rid = run_id or OFFICIAL_RUN_ID
         return run_v2_iteration(cfg, run_id=rid, official=(rid == OFFICIAL_RUN_ID), update=update)
+    elif name in ("v3", "v3-official", "h5", "h1", "h4") or (run_id or "").startswith("spec_v3"):
+        from tradingbot.eval.v3_paper import OFFICIAL_RUN_ID as V3_RUN_ID
+        from tradingbot.eval.v3_paper import run_v3_iteration
+        rid = run_id or V3_RUN_ID
+        return run_v3_iteration(cfg, run_id=rid, official=(rid == V3_RUN_ID), update=update)
     else:
         print(f"Unknown strategy {name}", file=sys.stderr)
         return 2, {"message": f"unknown strategy {name}", "strategy": name}
@@ -502,9 +507,9 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--bar", default=None)
     po.add_argument("--no-update", action="store_true")
     ps = sub.add_parser("paper-start", help="Start 24h paper loop in background (pidfile). Does not place live orders.")
-    ps.add_argument("--strategies", default="d1", help="Comma list, or 'v2' for spec v2 official/smoke")
+    ps.add_argument("--strategies", default="d1", help="Comma list, or 'v2' / 'v3' for official paper clocks")
     ps.add_argument("--poll", type=int, default=60, help="Seconds between polls (default 60)")
-    ps.add_argument("--run-id", default=None, help="Paper run id (spec_v2_official for the official v2 clock)")
+    ps.add_argument("--run-id", default=None, help="Paper run id (spec_v3_official or spec_v2_official)")
     pstop = sub.add_parser("paper-stop", help="Stop the background paper loop")
     pstop.add_argument("--run-id", default=None)
     pstat = sub.add_parser("paper-status", help="Show paper loop status")
@@ -547,8 +552,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_paper_once(cfg, args)
     if args.cmd == "paper-start":
         from tradingbot.strategies.spec_v2_common import OFFICIAL_RUN_ID
+        from tradingbot.eval.v3_paper import OFFICIAL_RUN_ID as V3_RUN_ID
         run_id = args.run_id
-        if run_id is None and str(getattr(args, "strategies", "")).startswith("v2"):
+        strat = str(getattr(args, "strategies", "") or "")
+        if run_id is None and strat.startswith("v3"):
+            run_id = V3_RUN_ID
+        elif run_id is None and strat.startswith("v2"):
             run_id = OFFICIAL_RUN_ID
         from tradingbot.paper_runner import start_background
         pid, msg = start_background(
@@ -559,7 +568,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             run_id=run_id,
         )
         print(msg)
-        print("Paper / dry-run only. No keys. No live. Official v2 first counted bar is the T0 close.")
+        if str(msg).startswith("REFUSED"):
+            return 2
+        if (run_id or "") == V3_RUN_ID or strat.startswith("v3"):
+            print("Paper / dry-run only. No keys. No live. C_paper=10000. Official v3 first counted bar is the T0 close (2026-11-12 07:00 UTC+7). Paper slots, not a strategy PASS.")
+        else:
+            print("Paper / dry-run only. No keys. No live. Official v2 first counted bar is the T0 close.")
         return 0
     if args.cmd == "paper-stop":
         from tradingbot.paper_runner import stop_background
@@ -567,7 +581,12 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
     if args.cmd == "paper-status":
         from tradingbot.paper_runner import format_status, get_status
-        print(format_status(get_status(cfg, run_id=getattr(args, "run_id", None))))
+        run_id = getattr(args, "run_id", None)
+        print(format_status(get_status(cfg, run_id=run_id)))
+        status_md = Path("/workspace/sprint/artifacts/spec_v3/paper_status.md")
+        if (run_id or "").startswith("spec_v3") and status_md.exists():
+            print()
+            print(status_md.read_text())
         return 0
     if args.cmd == "paper-loop":
         from tradingbot.paper_runner import run_loop

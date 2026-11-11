@@ -25,6 +25,23 @@ from tradingbot.portfolio import Portfolio
 DEFAULT_PIDFILE = "state/paper.pid"
 DEFAULT_STATUS = "state/paper_status.json"
 DEFAULT_POLL_SEC = 60
+V3_ROOT = Path("/workspace/trading-bot-v3")
+V3_OFFICIAL_RUN_ID = "spec_v3_official"
+V2_OFFICIAL_RUN_ID = "spec_v2_official"
+
+
+def is_v3_run(run_id: Optional[str] = None, strategies: Optional[str] = None) -> bool:
+    if run_id and (run_id == V3_OFFICIAL_RUN_ID or str(run_id).startswith("spec_v3")):
+        return True
+    if strategies and str(strategies).strip().lower().startswith("v3"):
+        return True
+    return False
+
+
+def verify_v3_freeze(*args, **kwargs):
+    from tradingbot.eval.v3_paper import verify_freeze
+
+    return verify_freeze(*args, **kwargs)
 
 
 @dataclass
@@ -45,6 +62,9 @@ class RunnerStatus:
 
 
 def pidfile_path(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> Path:
+    if is_v3_run(run_id):
+        rid = run_id or V3_OFFICIAL_RUN_ID
+        return V3_ROOT / "state" / "spec_v3" / rid / "paper.pid"
     if run_id:
         return Path("state") / "spec_v2" / run_id / "paper.pid"
     raw = DEFAULT_PIDFILE
@@ -54,6 +74,9 @@ def pidfile_path(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> 
 
 
 def status_path(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> Path:
+    if is_v3_run(run_id):
+        rid = run_id or V3_OFFICIAL_RUN_ID
+        return V3_ROOT / "state" / "spec_v3" / rid / "paper_status.json"
     if run_id:
         return Path("state") / "spec_v2" / run_id / "paper_status.json"
     raw = DEFAULT_STATUS
@@ -150,6 +173,9 @@ def format_status(st: RunnerStatus) -> str:
         f"poll_sec: {st.poll_sec or '—'}",
         "Paper / dry-run only. Never live. Capital is allocated_capital, not OKX main balance.",
     ]
+    if "spec_v3" in str(st.pidfile):
+        lines.insert(-1, "status_md: /workspace/sprint/artifacts/spec_v3/paper_status.md")
+        lines[-1] = "Paper / dry-run only. Never live. C_paper=10000, not OKX main balance. Not a strategy PASS."
     return "\n".join(lines)
 
 
@@ -162,6 +188,17 @@ def start_background(
     run_id: Optional[str] = None,
 ) -> tuple[int, str]:
     """Spawn `paper-loop` in the background. Returns (pid, message). Does not run if already alive."""
+    if run_id == V2_OFFICIAL_RUN_ID:
+        return 0, "REFUSED: official v2 runner lives in /workspace/trading-bot (pid 129703); do not start it from the v3 worktree."
+    if is_v3_run(run_id, strategies):
+        run_id = run_id or V3_OFFICIAL_RUN_ID
+        try:
+            info = verify_v3_freeze()
+        except Exception as e:
+            # FreezeMismatch or anything else from verify — do not spawn.
+            return 0, f"REFUSED: freeze mismatch: {e}"
+    else:
+        info = None
     st = get_status(cfg, run_id=run_id)
     if st.running:
         return st.pid or 0, f"already running pid={st.pid}"
@@ -179,7 +216,13 @@ def start_background(
         str(int(poll_sec)),
         *(["--run-id", run_id] if run_id else []),
     ]
-    log_path = Path("logs") / "spec_v2" / run_id / "paper_runner.log" if run_id else Path("logs") / "paper_runner.log"
+    if is_v3_run(run_id, strategies):
+        log_path = V3_ROOT / "logs" / "spec_v3" / run_id / "paper_runner.log"
+        cwd = str(V3_ROOT)
+    else:
+        log_path = Path("logs") / "spec_v2" / run_id / "paper_runner.log" if run_id else Path("logs") / "paper_runner.log"
+        cwd = os.getcwd()
+    log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     fh = open(log_path, "a")
     env = os.environ.copy()
@@ -189,7 +232,7 @@ def start_background(
         stdout=fh,
         stderr=subprocess.STDOUT,
         start_new_session=True,
-        cwd=os.getcwd(),
+        cwd=cwd,
         env=env,
     )
     write_pid(pidfile_path(cfg, run_id=run_id), proc.pid)
@@ -205,7 +248,13 @@ def start_background(
             last_result="started",
         ),
     )
-    return proc.pid, f"started pid={proc.pid} poll={poll_sec}s log={log_path}"
+    msg = f"started pid={proc.pid} poll={poll_sec}s log={log_path}"
+    if is_v3_run(run_id, strategies) and info is not None:
+        from tradingbot.eval.v3_paper import format_hash_verification, ts_saigon, write_running_lock
+
+        write_running_lock(pid=proc.pid, started=ts_saigon())
+        msg = f"{msg}\n{format_hash_verification(info)}"
+    return proc.pid, msg
 
 
 def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: Optional[str] = None) -> str:
@@ -234,6 +283,10 @@ def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: 
         except ProcessLookupError:
             pass
     clear_pid(pf)
+    if is_v3_run(run_id):
+        from tradingbot.eval.v3_paper import clear_running_lock
+
+        clear_running_lock(pid)
     prev = get_status(cfg, run_id=run_id)
     prev.running = False
     prev.pid = None
@@ -244,14 +297,25 @@ def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: 
 
 def run_loop(cfg: Config, *, strategies: str = "d1", poll_sec: int = DEFAULT_POLL_SEC, run_id: Optional[str] = None) -> int:
     """Foreground poll loop. Called by `paper-loop`. Writes pid if missing (e.g. foreground)."""
+    if run_id == V2_OFFICIAL_RUN_ID:
+        raise SystemExit("REFUSED: official v2 runner lives in /workspace/trading-bot; do not start it from the v3 worktree.")
+    if is_v3_run(run_id, strategies):
+        run_id = run_id or V3_OFFICIAL_RUN_ID
+        verify_v3_freeze()
     pf = pidfile_path(cfg, run_id=run_id)
     if read_pid(pf) is None:
         write_pid(pf, os.getpid())
-    events_path = (
-        str(Path("logs") / "spec_v2" / run_id / "paper_events.jsonl")
-        if run_id
-        else cfg.log_path
-    )
+    if is_v3_run(run_id, strategies):
+        from tradingbot.eval.v3_paper import ts_saigon, write_running_lock
+
+        write_running_lock(pid=os.getpid(), started=ts_saigon())
+        events_path = str(V3_ROOT / "logs" / "spec_v3" / run_id / "paper_events.jsonl")
+    else:
+        events_path = (
+            str(Path("logs") / "spec_v2" / run_id / "paper_events.jsonl")
+            if run_id
+            else cfg.log_path
+        )
     log = JsonlLogger(events_path)
     names = [s.strip() for s in strategies.split(",") if s.strip()][:3]
     if not names:
@@ -296,3 +360,7 @@ def run_loop(cfg: Config, *, strategies: str = "d1", poll_sec: int = DEFAULT_POL
     finally:
         if read_pid(pf) == os.getpid():
             clear_pid(pf)
+        if is_v3_run(run_id, strategies):
+            from tradingbot.eval.v3_paper import clear_running_lock
+
+            clear_running_lock(os.getpid())

@@ -128,9 +128,11 @@ def run(
         ),
     }
     manifest = build_manifest(cache_dir, bars=bars, extra=extra)
-    man_local = write_manifest(manifest, LOCAL_DATA / "manifest.json")
+    # Canonical copy only: /workspace/sprint/artifacts/spec_v3/data/manifest.json
     ARTIFACT.mkdir(parents=True, exist_ok=True)
+    (ARTIFACT / "data").mkdir(parents=True, exist_ok=True)
     man_art = write_manifest(manifest, ARTIFACT / "data" / "manifest.json")
+    man_local = man_art
 
     # compact quality report
     quality = {
@@ -182,7 +184,7 @@ def run(
     md = "\n".join(lines) + "\n"
     (LOCAL_DATA / "quality_report_v3.md").write_text(md)
     (ARTIFACT / "data" / "quality_report_v3.md").write_text(md)
-    print(f"manifest {man_local} and {man_art}  elapsed={elapsed:.1f}s", flush=True)
+    print(f"manifest {man_art}  elapsed={elapsed:.1f}s", flush=True)
     return {"manifest": str(man_art), "quality": str(ARTIFACT / "data" / "quality_report_v3.md"), "errors": errors}
 
 

@@ -78,5 +78,5 @@ CORE-SLOW passed screening (n=10 ≥ 8, Sharpe 0.813, maxDD −7.51%) but ranked
 - 1Dutc: 125 series, closed bars 57–3007, earliest 2018-08-18 00:00 UTC, latest 2026-11-10 00:00 UTC. BTC/ETH: 3007 closed bars from 2018-08-18.
 - 4H: 113 series at snapshot (backfill still running), earliest 2019-01-22 12:00 UTC, latest 2026-11-11 04:00 UTC.
 - 1H: not yet complete at snapshot (backfill still running). Screening used 1Dutc only (brief: no 4H variants).
-- Manifest with SHA256 checksums: `artifacts/spec_v3/data/manifest.json`. Cache is gitignored.
+- Manifest with SHA256 checksums (canonical): `/workspace/sprint/artifacts/spec_v3/data/manifest.json`. Cache is gitignored.
 - Funding: 3239 settled prints each for BTC-USDT-SWAP and ETH-USDT-SWAP, 2022-01-16 16:00 UTC → 2024-12-31 08:00 UTC, from official archive module 3. The 2023-01 BTC zip was copied from the earlier probe, not re-downloaded.

@@ -13,4 +13,4 @@ Seed = favorites ∪ historical majors ∪ OKX USDT-spot top-40 snapshot at down
 BTC-USDT 1Dutc: 3007 closed bars, 2018-08-18 00:00 UTC → 2026-11-10 00:00 UTC.
 ETH-USDT 1Dutc: 3007 closed bars, 2018-08-18 00:00 UTC → 2026-11-10 00:00 UTC.
 
-Manifest SHA256 checksums: `data/manifest.json` (also artifacts/spec_v3/data/manifest.json). Cache files are gitignored.
+Manifest SHA256 checksums (canonical): `/workspace/sprint/artifacts/spec_v3/data/manifest.json`. Cache files are gitignored.

@@ -1,0 +1,4 @@
+last_successful_calendar_fetch: 2026-11-11T13:55:00+07:00
+source_base: /workspace/crypto/reversal-v2/raw/events/events_2022_2026.csv (copied, not modified)
+base_retrieved_at: 2026-11-09T15:26:01+07:00
+extended: CPI 2026-11-10 official BLS; scheduled PPI 2026-11-13; next CPI 2026-12-10; FOMC statement 2026-12-09 (14:00 ET assumed)

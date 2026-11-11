@@ -1,0 +1,11 @@
+[project]
+name = "tradingbot"
+version = "0.1.0"
+description = "OKX spot paper/dry-run trading engine (T1 scaffold)"
+requires-python = ">=3.11"
+dependencies = ["requests", "pandas", "numpy"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-q"

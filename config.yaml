@@ -1,0 +1,45 @@
+# OKX spot paper/dry-run engine. No live orders.
+# allocated_capital / paper_notional_usdt are REQUIRED and must be set explicitly.
+# They are a dedicated sub-account paper allocation — NEVER inferred from the
+# main OKX account balance, from OKX_* env vars, or from Simple Earn.
+mode: dry_run
+exchange: okx
+market: spot
+symbol: BTC-USDT
+bar: 4H
+fee_taker: 0.001          # 0.1% taker / side (OKX spot default)
+slippage_mult: 2.0        # slippage = 2x fee (0.2%/side)
+allocated_capital: 10000
+paper_notional_usdt: 10000
+state_path: state/portfolio.json
+log_path: logs/tradingbot.jsonl
+paper_log_path: logs/paper_book.jsonl
+timezone: Etc/GMT-7
+universe_file: /workspace/crypto/favorites.txt
+crypto_data_dir: /workspace/crypto/data
+
+risk:
+  risk_pct: 0.0075        # 0.75% of paper equity, clamped to 0.5–1%
+  risk_pct_min: 0.005
+  risk_pct_max: 0.01
+  daily_loss_cap: 0.03
+  max_drawdown: 0.10
+  max_exposure_asset: 0.25
+  max_exposure_total: 1.00
+  max_open_positions: 20
+  min_notional: 10.0
+  lot_size: 0.00001
+  tick_size: 0.1
+
+data:
+  rest_base: https://www.okx.com/api/v5
+  ws_public: wss://ws.okx.com:8443/ws/v5/public
+  cache_dir: data/cache
+  timeout_sec: 10.0
+
+backtest:
+  days: 400
+  n_folds: 4
+  oos_ratio: 0.20
+  symbol: BTC-USDT
+  bar: 4H

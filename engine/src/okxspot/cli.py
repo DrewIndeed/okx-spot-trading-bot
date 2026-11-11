@@ -14,7 +14,7 @@ from okxspot.logging_config import configure_logging
 from okxspot.demo import demo_keys_from_env, missing_demo_keys_message
 from okxspot.alerts import build_alerter
 from okxspot.killswitch import KillSwitch
-from okxspot.watchdog import PROTECTED_PID, Supervisor, monitor_heartbeat
+from okxspot.watchdog import PROTECTED_PID, Supervisor, monitor_heartbeat, monitor_loop
 from okxspot.runtime import (
     prepare_live,
     run_backtest,
@@ -73,6 +73,8 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
     mon = sub.add_parser("monitor", help="fail closed if the supervisor heartbeat is stale")
     mon.add_argument("--config", required=True)
     mon.add_argument("--max-age", type=float, default=90.0)
+    mon.add_argument("--loop", action="store_true", help="keep polling until the heartbeat is stale")
+    mon.add_argument("--poll", type=float, default=15.0)
 
     args = parser.parse_args(argv)
     configure_logging(args.log_level)
@@ -157,12 +159,22 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
             return 0
         if args.cmd == "monitor":
             settings = load_settings(args.config)
-            tripped = monitor_heartbeat(
-                heartbeat_path=settings.heartbeat_path,
-                kill_switch=KillSwitch(settings.kill_switch_path),
-                max_age_seconds=args.max_age,
-                protected_pids=frozenset({PROTECTED_PID}),
-            )
+            ks = KillSwitch(settings.kill_switch_path)
+            if args.loop:
+                tripped = monitor_loop(
+                    heartbeat_path=settings.heartbeat_path,
+                    kill_switch=ks,
+                    max_age_seconds=args.max_age,
+                    poll_seconds=args.poll,
+                    protected_pids=frozenset({PROTECTED_PID}),
+                )
+            else:
+                tripped = monitor_heartbeat(
+                    heartbeat_path=settings.heartbeat_path,
+                    kill_switch=ks,
+                    max_age_seconds=args.max_age,
+                    protected_pids=frozenset({PROTECTED_PID}),
+                )
             print("monitor: stale heartbeat; kill switch tripped" if tripped else "monitor: heartbeat ok")
             return 1 if tripped else 0
     except LiveGuardError as exc:

@@ -9,8 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from okxspot.atomic import write_text_atomic
 from okxspot.errors import OkxSpotError
 from okxspot.killswitch import KillSwitch
+from okxspot.safety import SUPERVISED_ENV
 
 # Official spec_v2 paper runner. This supervisor must never signal or restart it.
 PROTECTED_PID = 129703
@@ -94,7 +96,9 @@ class Supervisor:
     def spawn(self) -> None:
         if self.kill_switch.is_tripped:
             raise SupervisorError(f"kill switch is tripped ({self.kill_switch.reason})")
-        proc = self._popen(self.argv, cwd=str(self.cwd) if self.cwd else None)
+        env = os.environ.copy()
+        env[SUPERVISED_ENV] = "1"
+        proc = self._popen(self.argv, cwd=str(self.cwd) if self.cwd else None, env=env)
         pid = int(getattr(proc, "pid", 0) or 0)
         cmdline = " ".join(self.argv)
         if pid in self._protected or is_protected_pid(pid, cmdline):
@@ -114,7 +118,7 @@ class Supervisor:
             "supervisor_pid": os.getpid(),
         }
         self.heartbeat_path.parent.mkdir(parents=True, exist_ok=True)
-        self.heartbeat_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        write_text_atomic(self.heartbeat_path, json.dumps(payload) + "\n")
 
     def _restarts_in_window(self, window: float = 3600.0) -> int:
         cutoff = self._now() - window
@@ -243,3 +247,32 @@ def monitor_heartbeat(
             pass
     kill_switch.trip("stale_supervisor_heartbeat", source="monitor")
     return True
+
+
+def monitor_loop(
+    *,
+    heartbeat_path: str | Path,
+    kill_switch: KillSwitch,
+    max_age_seconds: float,
+    poll_seconds: float = 15.0,
+    protected_pids: frozenset[int] | None = None,
+    now: Callable[[], float] | None = None,
+    sleeper: Callable[[float], None] | None = None,
+    max_cycles: int | None = None,
+) -> bool:
+    """Fail-closed monitor loop. Returns True once the kill switch is tripped."""
+    sleep = sleeper or _default_sleep
+    cycles = 0
+    while True:
+        cycles += 1
+        if monitor_heartbeat(
+            heartbeat_path=heartbeat_path,
+            kill_switch=kill_switch,
+            max_age_seconds=max_age_seconds,
+            protected_pids=protected_pids,
+            now=now,
+        ):
+            return True
+        if max_cycles is not None and cycles >= max_cycles:
+            return False
+        sleep(poll_seconds)

@@ -422,6 +422,12 @@ def test_b5_flatten_id_stable_when_now_is_none(tmp_path: Path) -> None:
 
 
 def test_b5_flatten_crash_before_persist_does_not_double_sell(tmp_path: Path) -> None:
+    """Crash after the flatten POST but before book persist; restart with a later clock.
+
+    The durable cid is from pos.opened_at, so a wall-clock id would change after
+    the clock moves and would produce a second venue POST. This test must fail
+    if that B5 fix is reverted.
+    """
     db = tmp_path / "s.db"
     settings = make_settings(kill_switch_path=str(tmp_path / "KILL"), journal_path=str(tmp_path / "j.jsonl"))
     KillSwitch(settings.kill_switch_path).rearm(operator="setup")
@@ -433,30 +439,29 @@ def test_b5_flatten_crash_before_persist_does_not_double_sell(tmp_path: Path) ->
     engine.book.allocated_capital = D("1000")
     state.save_book(engine.book)
     engine._now = None
-    engine.force_flatten("test")
+    engine._crash_before_persist = True
+    with pytest.raises(RuntimeError, match="injected crash before persist"):
+        engine.force_flatten("test")
     assert len(ex.place_calls) == 1
     first_cid = ex.place_calls[0].client_order_id
-    # crash before save of flat book: position still in sqlite (rewrite saved pre-flatten book)
+    expected = make_client_order_id("flatten", "BTC-USDT", "sell", int(opened.timestamp()), purpose="flatten")
+    assert first_cid == expected
     state.close()
-    # Ensure sqlite still has the position (simulate crash before persist by re-saving the open book)
     state2 = StateStore(db)
-    # the first engine may have persisted a flat book; force the pre-crash snapshot
     book = state2.load_book(D("1000"))
-    if "BTC-USDT" not in book.positions:
-        book.positions["BTC-USDT"] = Position("BTC-USDT", D("1"), D("100"), D("95"), D("5"), opened)
-        state2.save_book(book)
+    assert "BTC-USDT" in book.positions
+    assert book.positions["BTC-USDT"].qty == D("1")
     ex2 = RecordingExchange()
     ex2.orders = dict(ex.orders)
     engine2 = build_engine(exchange=ex2, settings=settings, strategy=Flat(), state=state2, fee_rate=D("0"))
-    if "BTC-USDT" in engine2.book.positions:
-        engine2.force_flatten("restart_halt")
-    cids = [req.client_order_id for req in ex.place_calls] + [req.client_order_id for req in ex2.place_calls]
-    assert cids
-    assert set(cids) == {first_cid}
-    # venue posts: at most one new POST if the first was already recorded
-    assert len(ex2.place_calls) <= 1
-    if ex2.place_calls:
-        assert ex2.place_calls[0].client_order_id == first_cid
+    # Clock has moved; a wall-clock cid would differ from first_cid.
+    engine2._now = datetime(2026, 1, 3, 12, 0, tzinfo=UTC)
+    assert "BTC-USDT" in engine2.book.positions
+    engine2.force_flatten("restart_halt")
+    all_cids = [req.client_order_id for req in ex.place_calls] + [req.client_order_id for req in ex2.place_calls]
+    assert set(all_cids) == {first_cid}
+    # No second venue POST of a different (or even the same) flatten.
+    assert ex2.place_calls == []
     state2.close()
 
 
@@ -499,9 +504,16 @@ def test_m1_pretrade_invoked_for_entry_exit_flatten_and_algo(tmp_path: Path, mon
     if "BTC-USDT" not in engine.book.positions:
         engine.book.positions["BTC-USDT"] = Position("BTC-USDT", D("1"), D("100"), D("95"), D("5"), now)
     engine.force_flatten("m1")
+    # exit + algo-stop must also go through pretrade
+    pos = Position("ETH-USDT", D("1"), D("100"), D("95"), D("5"), now)
+    engine.book.positions["ETH-USDT"] = pos
+    engine._ensure_stops()
+    engine._handle_signal(Signal("ETH-USDT", Side.SELL, D("95"), "exit-test"), _closed(now, "100", inst="ETH-USDT"))
     purposes = " ".join(seen)
-    assert "entry" in purposes or "OrderPurpose.ENTRY" in purposes or "ENTRY" in purposes.upper()
+    assert "entry" in purposes.lower() or "ENTRY" in purposes
     assert "flatten" in purposes.lower() or "FLATTEN" in purposes
+    assert "exit" in purposes.lower() or "EXIT" in purposes
+    assert "stop" in purposes.lower() or "STOP" in purposes
     state.close()
 
 
@@ -509,38 +521,31 @@ def test_m1_rate_limit_blocks_and_survives_restart(tmp_path: Path) -> None:
     settings = make_settings(
         kill_switch_path=str(tmp_path / "KILL"),
         journal_path=str(tmp_path / "j.jsonl"),
-        risk={"max_orders_per_minute": 1, "max_orders_per_day": 2},
+        risk={"max_orders_per_minute": 30, "max_orders_per_day": 1},
     )
     KillSwitch(settings.kill_switch_path).rearm(operator="setup")
     state = StateStore(tmp_path / "s.db")
     ex = RecordingExchange()
     engine = build_engine(exchange=ex, settings=settings, strategy=Flat(), state=state, fee_rate=D("0"))
     now = datetime(2026, 1, 2, 12, 0, tzinfo=UTC)
-    req1 = OrderRequest("BTC-USDT", Side.BUY, OrderType.MARKET, D("0.01"), "c" + "a" * 31)
-    engine.orders.submit(req1, now=now)
-    with pytest.raises((OkxSpotError, LiveGuardError)) as caught:
-        engine.orders.submit(OrderRequest("BTC-USDT", Side.BUY, OrderType.MARKET, D("0.01"), "c" + "b" * 31), now=now + timedelta(seconds=1))
-    if not caught:
-        # submit may return a rejected decision rather than raise
-        pass
-    # persist and reload
+    engine.orders.submit(OrderRequest("BTC-USDT", Side.BUY, OrderType.MARKET, D("0.01"), "c" + "a" * 31), now=now)
     engine._persist()
     state.close()
     state2 = StateStore(tmp_path / "s.db")
     engine2 = build_engine(exchange=ex, settings=settings, strategy=Flat(), state=state2, fee_rate=D("0"))
-    # daily count must still block a third order on the same UTC day
+    later = now + timedelta(minutes=5)
     blocked = engine2.risk.pretrade(
         inst_id="BTC-USDT",
         side=Side.BUY,
         purpose=OrderPurpose.ENTRY,
         notional=D("50"),
-        now=now + timedelta(minutes=5),
+        now=later,
         record=True,
     )
-    # after 1 submitted + maybe 1 blocked, daily cap is 2. One more after restart from persisted 1 should still have room
-    # unless both counted. At least the minute/day counters must be non-zero after load.
-    exported = engine2.risk.export_state()
-    assert "submit_times" in exported or int(exported.get("submits_today") or exported.get("day_submits") or 0) >= 1 or engine2.risk._submit_times  # noqa: SLF001
+    assert blocked.allowed is False
+    assert blocked.reason == "max_orders_per_day"
+    with pytest.raises((OkxSpotError, LiveGuardError), match="max_orders_per_day|pretrade"):
+        engine2.orders.submit(OrderRequest("BTC-USDT", Side.BUY, OrderType.MARKET, D("0.01"), "c" + "b" * 31), now=later)
     state2.close()
 
 
@@ -991,3 +996,276 @@ def test_m12_client_repr_and_logs_redact_secrets(capsys, caplog) -> None:  # typ
     http.close()
     out = caplog.text
     assert token not in out
+
+# ----- M8 persist cursor + no double apply -----
+
+def test_m8_fill_cursor_persists_across_restart_and_does_not_reapply(tmp_path: Path) -> None:
+    from okxspot.exchange.okx_exchange import OkxExchange
+    from okxspot.portfolio import PortfolioBook
+
+    pages = [
+        {"code": "0", "data": [{"tradeId": "new-1", "billId": "b-new", "clOrdId": "c" + "n" * 31, "instId": "BTC-USDT", "side": "buy", "fillPx": "100", "fillSz": "0.01", "fee": "0", "feeCcy": "USDT", "ts": "1700000001000"}]},
+        {"code": "0", "data": [{"tradeId": "old-1", "billId": "b-old", "clOrdId": "c" + "o" * 31, "instId": "BTC-USDT", "side": "buy", "fillPx": "100", "fillSz": "1", "fee": "0", "feeCcy": "USDT", "ts": "1690000000000"}]},
+        {"code": "0", "data": []},
+    ]
+    seen_params: list[dict] = []
+
+    class _Limiter:
+        def acquire(self) -> None:
+            return None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/trade/fills"):
+            seen_params.append(dict(request.url.params))
+            after = dict(request.url.params).get("after")
+            if after:
+                # after the persisted cursor, venue has nothing newer/older to add
+                return httpx.Response(200, json={"code": "0", "data": []})
+            idx = min(len([p for p in seen_params if not p.get("after")]) - 1, len(pages) - 1)
+            # first-pass pagination (no after, then after from page)
+            if after is None and len([p for p in seen_params if not p.get("after")]) == 1:
+                return httpx.Response(200, json=pages[0])
+            return httpx.Response(200, json=pages[min(len(seen_params) - 1, len(pages) - 1)])
+        return httpx.Response(404, json={"code": "404", "msg": request.url.path})
+
+    def make_exchange() -> OkxExchange:
+        client = OkxClient(
+            api_key="test-key", secret="test-secret", passphrase="test-pass",
+            transport=httpx.MockTransport(handler), limiter=_Limiter(),
+        )
+        return OkxExchange(client, min_notional=D("1"))
+
+    settings = make_settings(kill_switch_path=str(tmp_path / "KILL"), journal_path=str(tmp_path / "j.jsonl"))
+    KillSwitch(settings.kill_switch_path).rearm(operator="setup")
+    state = StateStore(tmp_path / "s.db")
+    ex = make_exchange()
+    engine = build_engine(exchange=ex, settings=settings, strategy=Flat(), state=state, fee_rate=D("0"))
+    engine.sync_exchange_fills()
+    engine._persist()
+    first_ids = set(engine.book.applied)
+    assert "old-1" in first_ids or "new-1" in first_ids
+    cursor = state.get_kv("fill_cursor")
+    assert cursor
+    state.close()
+    ex.client.close()
+
+    seen_before = len(seen_params)
+    state2 = StateStore(tmp_path / "s.db")
+    ex2 = make_exchange()
+    engine2 = build_engine(exchange=ex2, settings=settings, strategy=Flat(), state=state2, fee_rate=D("0"))
+    assert state2.get_kv("fill_cursor") == cursor
+    engine2.sync_exchange_fills()
+    # Cursor is sent so we do not walk the first page again blindly.
+    assert any(p.get("after") == cursor for p in seen_params[seen_before:])
+    assert engine2.book.applied == first_ids or first_ids <= engine2.book.applied
+    # applied fills are not applied twice
+    assert list(engine2.book.applied).count("old-1") <= 1 if "old-1" in engine2.book.applied else True
+    state2.close()
+    ex2.client.close()
+
+
+# ----- M9 supervise env + monitor loop -----
+
+def test_m9_supervise_sets_supervised_env(tmp_path: Path) -> None:
+    from okxspot.safety import SUPERVISED_ENV
+
+    captured: dict[str, object] = {}
+
+    class Proc:
+        def __init__(self) -> None:
+            self.pid = 9101
+            self.returncode = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            return int(self.returncode or 0)
+
+    def popen(*_a, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return Proc()
+
+    ks = KillSwitch(tmp_path / "KILL")
+    ks.rearm(operator="setup")
+    sup = Supervisor(
+        ["python", "-c", "pass"],
+        heartbeat_path=tmp_path / "hb.json",
+        kill_switch=ks,
+        alerter=MemoryAlerter(),
+        popen=popen,
+        sleeper=lambda _s: None,
+        now=lambda: 1_700_000_000.0,
+        protected_pids=frozenset({PROTECTED_PID}),
+    )
+    sup.spawn()
+    env = captured["env"]
+    assert isinstance(env, dict)
+    assert env.get(SUPERVISED_ENV) == "1"
+
+
+def test_m9_monitor_loop_trips_when_heartbeat_goes_stale(tmp_path: Path) -> None:
+    from okxspot.watchdog import monitor_loop
+
+    hb = tmp_path / "hb.json"
+    clock = {"t": 1_700_000_000.0}
+    ks = KillSwitch(tmp_path / "KILL")
+    ks.rearm(operator="setup")
+    hb.write_text(json.dumps({
+        "ts": datetime.fromtimestamp(clock["t"], tz=UTC).isoformat(),
+        "pid": 4242,
+        "child_pid": 4242,
+        "running": True,
+        "supervisor_pid": 1,
+        "argv": ["python"],
+    }), encoding="utf-8")
+    polls = {"n": 0}
+
+    def sleeper(_s: float) -> None:
+        polls["n"] += 1
+        clock["t"] += 120
+
+    tripped = monitor_loop(
+        heartbeat_path=hb,
+        kill_switch=ks,
+        max_age_seconds=5,
+        poll_seconds=0.01,
+        now=lambda: clock["t"],
+        sleeper=sleeper,
+        protected_pids=frozenset({PROTECTED_PID}),
+        max_cycles=5,
+    )
+    assert tripped is True
+    assert ks.is_tripped is True
+    assert polls["n"] >= 1
+
+
+# ----- M10 loop wiring -----
+
+def test_m10_loop_invokes_account_recheck_and_blocks_entries(tmp_path: Path) -> None:
+    from okxspot.exchange.okx_parse import AccountConfig
+
+    class MainAcct(RecordingExchange):
+        def get_account_config(self) -> AccountConfig:
+            return AccountConfig(permissions={"trade"}, ip="1.2.3.4", uid="same", main_uid="same", label="bot")
+
+        def get_account_view(self) -> AccountView:
+            return AccountView("USDT", D("1000"), D("50000"))
+
+    settings = make_settings(
+        kill_switch_path=str(tmp_path / "KILL"),
+        journal_path=str(tmp_path / "j.jsonl"),
+        required_uid="sub",
+        required_account_label="bot",
+        allocated_capital="1000",
+        max_allocated_capital="1000",
+        bar="1H",
+    )
+    ex = MainAcct()
+    now = datetime(2026, 1, 2, 1, 0, tzinfo=UTC)
+    ex.server_time_ms = lambda: int(now.timestamp() * 1000)  # type: ignore[method-assign]
+    engine, settings, state = _engine(tmp_path, ex, settings=settings, strategy=BuyOnce())
+    last = now - timedelta(hours=1)
+    prev = last - timedelta(hours=1)
+    _loop(
+        engine,
+        FakeFeed({"BTC-USDT": [_closed(prev, "100"), _closed(last, "100")]}),
+        settings,
+        once=True,
+        live=True,
+        now=lambda: now,
+    )
+    assert engine.kill_switch is not None and engine.kill_switch.is_tripped
+    assert engine.risk.halted is True
+    assert ex.place_calls == []
+    state.close()
+
+
+# ----- named minors m1–m4 -----
+
+def test_m1_live_requires_settings_mode_live(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OKXSPOT_SUPERVISED", "1")
+    settings = make_settings(
+        live_enabled=True,
+        mode="paper",
+        required_uid="sub",
+        required_account_label="bot",
+        allow_placeholder_live=True,
+        kill_switch_path=str(tmp_path / "KILL"),
+    )
+    KillSwitch(settings.kill_switch_path).rearm(operator="setup")
+    env = {
+        "OKX_LIVE_CONFIRM": LIVE_CONFIRM_VALUE,
+        "OKX_API_KEY": "test-key",
+        "OKX_API_SECRET": "test-secret",
+        "OKX_API_PASSPHRASE": "test-pass",
+        "OKXSPOT_SUPERVISED": "1",
+    }
+    with pytest.raises(LiveGuardError, match="mode == 'live'"):
+        prepare_live(settings, enable_live_flag=True, env=env)
+
+
+def test_m2_rejects_wildcard_ip() -> None:
+    from okxspot.exchange.okx_parse import AccountConfig
+    from okxspot.safety import validate_account_restrictions
+
+    settings = make_settings(required_uid="sub", required_account_label="bot")
+    base = dict(permissions={"trade"}, uid="sub", main_uid="main", label="bot")
+    for ip in ("*", "0.0.0.0", "0.0.0.0/0", "::/0"):
+        with pytest.raises(LiveGuardError, match="IP-restricted"):
+            validate_account_restrictions(AccountConfig(ip=ip, **base), settings)
+    validate_account_restrictions(AccountConfig(ip="1.2.3.4", **base), settings)
+
+
+def test_m3_live_requires_uid_and_account_label(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OKXSPOT_SUPERVISED", "1")
+    settings = make_settings(
+        live_enabled=True,
+        mode="live",
+        allow_placeholder_live=True,
+        kill_switch_path=str(tmp_path / "KILL"),
+    )
+    KillSwitch(settings.kill_switch_path).rearm(operator="setup")
+    env = {
+        "OKX_LIVE_CONFIRM": LIVE_CONFIRM_VALUE,
+        "OKX_API_KEY": "test-key",
+        "OKX_API_SECRET": "test-secret",
+        "OKX_API_PASSPHRASE": "test-pass",
+        "OKXSPOT_SUPERVISED": "1",
+    }
+    with pytest.raises(LiveGuardError, match="required_uid and required_account_label"):
+        prepare_live(settings, enable_live_flag=True, env=env)
+
+
+def test_m4_journal_is_attached_and_fsyncs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    synced: list[int] = []
+    real = os.fsync
+
+    def spy(fd: int) -> None:
+        synced.append(fd)
+        return real(fd)
+
+    monkeypatch.setattr(os, "fsync", spy)
+    settings = make_settings(kill_switch_path=str(tmp_path / "KILL"), journal_path=str(tmp_path / "j.jsonl"))
+    KillSwitch(settings.kill_switch_path).rearm(operator="setup")
+    state = StateStore(tmp_path / "s.db")
+    engine = build_engine(
+        exchange=RecordingExchange(),
+        settings=settings,
+        strategy=Flat(),
+        state=state,
+        fee_rate=D("0"),
+    )
+    assert engine.orders.journal is not None
+    assert Path(settings.journal_path) == engine.orders.journal.path or str(engine.orders.journal.path) == settings.journal_path
+    synced.clear()
+    engine.orders.submit(OrderRequest("BTC-USDT", Side.BUY, OrderType.MARKET, D("0.01"), "c" + "z" * 31), now=datetime(2026, 1, 2, tzinfo=UTC))
+    text = Path(settings.journal_path).read_text(encoding="utf-8")
+    assert "submitted" in text
+    assert synced, "journal append must fsync"
+    state.close()

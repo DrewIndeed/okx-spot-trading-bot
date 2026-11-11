@@ -67,6 +67,14 @@ class OkxExchange(Exchange):
         self._new: list[Fill] = []
         self._purposes: dict[str, OrderPurpose] = {}
 
+    @property
+    def fill_cursor(self) -> str | None:
+        return self._fill_cursor
+
+    def load_fill_cursor(self, cursor: str | None) -> None:
+        if cursor:
+            self._fill_cursor = cursor
+
     def server_time_ms(self) -> int:
         payload = self.client.request("GET", "/api/v5/public/time", auth=False, idempotent=True)
         data = payload["data"]
@@ -344,8 +352,10 @@ class OkxExchange(Exchange):
         return out
 
     def sync(self) -> None:
-        after: str | None = None
+        after: str | None = self._fill_cursor
         seen_cursors: set[str] = set()
+        if after:
+            seen_cursors.add(after)
         for _page in range(20):
             params = {"instType": "SPOT", "limit": "100"}
             if after:

@@ -207,9 +207,14 @@ class TradingEngine:
             self.exchange.cancel_open_orders(inst)
             mark = self.marks.get(inst, pos.avg_price)
             self._exit_position(inst, pos.qty, "flat", mark, OrderPurpose.FLATTEN, opened_at=pos.opened_at)
+        if getattr(self, "_crash_before_persist", False):
+            raise RuntimeError("injected crash before persist")
         self._persist()
 
     def sync_exchange_fills(self) -> None:
+        loader = getattr(self.exchange, "load_fill_cursor", None)
+        if callable(loader):
+            loader(self.state.get_kv("fill_cursor"))
         self.exchange.sync()
         self._drain()
 
@@ -366,7 +371,8 @@ class TradingEngine:
         return f"processed:{inst}:{int(ts.timestamp())}"
 
     def _persist(self) -> None:
-        self.state.save_book(self.book)
+        cursor = getattr(self.exchange, "fill_cursor", None)
+        self.state.save_book(self.book, fill_cursor=cursor)
         self.state.set_kv("risk_state", self.risk.export_json())
         if isinstance(self.exchange, PaperExchange):
             self.state.save_paper_balances(self.exchange.cash_available, dict(self.exchange.bases))

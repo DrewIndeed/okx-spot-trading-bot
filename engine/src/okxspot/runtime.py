@@ -9,6 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from okxspot.alerts import Alerter, build_alerter
+from okxspot.atomic import write_text_atomic
 from okxspot.backtest.report import write_backtest_report
 from okxspot.backtest.session import SessionResult, build_strategy, run_session
 from okxspot.config import Settings
@@ -106,6 +107,36 @@ def maybe_recheck_account(engine: TradingEngine, settings: Settings, *, account:
         engine.alerter.send("critical", f"account recheck failed: {exc}", event="kill_switch")
 
 
+def recheck_account_from_exchange(engine: TradingEngine, settings: Settings) -> None:
+    """Call maybe_recheck_account from the live/paper loop when the venue can answer."""
+    getter = getattr(engine.exchange, "get_account_config", None)
+    if not callable(getter):
+        return
+    try:
+        account = getter()
+    except Exception as exc:
+        maybe_recheck_account(
+            engine,
+            settings,
+            account=__import__("okxspot.exchange.okx_parse", fromlist=["AccountConfig"]).AccountConfig(
+                permissions=set(), ip=None, uid="", main_uid="", label=""
+            ),
+            total_eq=None,
+        )
+        if engine.kill_switch is not None and not engine.kill_switch.is_tripped:
+            engine.kill_switch.trip(f"account_recheck_failed:{type(exc).__name__}", source="account_recheck")
+        engine.risk.halted = True
+        engine.risk.halt_reason = "account_recheck"
+        return
+    total_eq = None
+    try:
+        view = engine.exchange.get_account_view()
+        total_eq = getattr(view, "total_eq", None)
+    except Exception:
+        total_eq = None
+    maybe_recheck_account(engine, settings, account=account, total_eq=total_eq)
+
+
 def _write_child_heartbeat(settings: Settings, now: datetime) -> None:
     path = Path(settings.child_heartbeat_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -114,7 +145,7 @@ def _write_child_heartbeat(settings: Settings, now: datetime) -> None:
         "pid": os.getpid(),
         "running": True,
     }
-    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    write_text_atomic(path, json.dumps(payload) + "\n")
 
 
 def prepare_live(settings: Settings, *, enable_live_flag: bool, env: Mapping[str, str]) -> OkxClient:
@@ -242,6 +273,7 @@ def run_live_loop(settings: Settings, client: OkxClient, *, once: bool) -> None:
         fee_rate=settings.fees.rate_for("live"),
         alerter=alerter,
     )
+    recheck_account_from_exchange(engine, settings)
     report = engine.orders.reconcile()
     engine.sync_exchange_fills()
     log.info(
@@ -280,6 +312,7 @@ def _loop(
         except OSError:
             pass
         engine.apply_kill_switch()
+        recheck_account_from_exchange(engine, settings)
         try:
             candles = feed.next_candles(timeout=settings.runtime.poll_seconds)
         except TypeError:

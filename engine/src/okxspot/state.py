@@ -215,7 +215,7 @@ class StateStore:
             return None
         return str(row["value"])
 
-    def save_book(self, book: PortfolioBook) -> None:
+    def save_book(self, book: PortfolioBook, fill_cursor: str | None = None) -> None:
         # One transaction for kv + positions + applied_trades so a mid-write crash
         # cannot leave a new realized_pnl with the old position set.
         try:
@@ -249,6 +249,8 @@ class StateStore:
             self._conn.execute("DELETE FROM applied_trades")
             for trade_id in book.applied:
                 self._conn.execute("INSERT INTO applied_trades (trade_id) VALUES (?)", (trade_id,))
+            if fill_cursor:
+                self._set_kv("fill_cursor", fill_cursor, commit=False)
             self._conn.commit()
         except Exception:
             self._conn.rollback()

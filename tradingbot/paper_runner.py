@@ -44,14 +44,18 @@ class RunnerStatus:
         return asdict(self)
 
 
-def pidfile_path(cfg: Optional[Config] = None) -> Path:
+def pidfile_path(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> Path:
+    if run_id:
+        return Path("state") / "spec_v2" / run_id / "paper.pid"
     raw = DEFAULT_PIDFILE
     if cfg and getattr(cfg, "state_path", None):
         raw = str(Path(cfg.state_path).parent / "paper.pid")
     return Path(raw)
 
 
-def status_path(cfg: Optional[Config] = None) -> Path:
+def status_path(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> Path:
+    if run_id:
+        return Path("state") / "spec_v2" / run_id / "paper_status.json"
     raw = DEFAULT_STATUS
     if cfg and getattr(cfg, "state_path", None):
         raw = str(Path(cfg.state_path).parent / "paper_status.json")
@@ -106,9 +110,9 @@ def load_status_file(path: Path) -> dict:
         return {}
 
 
-def get_status(cfg: Optional[Config] = None) -> RunnerStatus:
-    pf = pidfile_path(cfg)
-    sf = status_path(cfg)
+def get_status(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> RunnerStatus:
+    pf = pidfile_path(cfg, run_id=run_id)
+    sf = status_path(cfg, run_id=run_id)
     prev = load_status_file(sf)
     pid = read_pid(pf)
     alive = pid_is_alive(pid) if pid is not None else False
@@ -155,13 +159,14 @@ def start_background(
     strategies: str = "d1",
     poll_sec: int = DEFAULT_POLL_SEC,
     config_path: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> tuple[int, str]:
     """Spawn `paper-loop` in the background. Returns (pid, message). Does not run if already alive."""
-    st = get_status(cfg)
+    st = get_status(cfg, run_id=run_id)
     if st.running:
         return st.pid or 0, f"already running pid={st.pid}"
     if st.stale:
-        clear_pid(pidfile_path(cfg))
+        clear_pid(pidfile_path(cfg, run_id=run_id))
     cmd = [
         sys.executable,
         "-m",
@@ -172,25 +177,29 @@ def start_background(
         strategies,
         "--poll",
         str(int(poll_sec)),
+        *(["--run-id", run_id] if run_id else []),
     ]
-    log_path = Path("logs") / "paper_runner.log"
+    log_path = Path("logs") / "spec_v2" / run_id / "paper_runner.log" if run_id else Path("logs") / "paper_runner.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     fh = open(log_path, "a")
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
     proc = subprocess.Popen(
         cmd,
         stdout=fh,
         stderr=subprocess.STDOUT,
         start_new_session=True,
         cwd=os.getcwd(),
+        env=env,
     )
-    write_pid(pidfile_path(cfg), proc.pid)
+    write_pid(pidfile_path(cfg, run_id=run_id), proc.pid)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     write_status_file(
-        status_path(cfg),
+        status_path(cfg, run_id=run_id),
         RunnerStatus(
             running=True,
             pid=proc.pid,
-            pidfile=str(pidfile_path(cfg)),
+            pidfile=str(pidfile_path(cfg, run_id=run_id)),
             started_at=now,
             poll_sec=int(poll_sec),
             last_result="started",
@@ -199,9 +208,9 @@ def start_background(
     return proc.pid, f"started pid={proc.pid} poll={poll_sec}s log={log_path}"
 
 
-def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0) -> str:
-    st = get_status(cfg)
-    pf = pidfile_path(cfg)
+def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: Optional[str] = None) -> str:
+    st = get_status(cfg, run_id=run_id)
+    pf = pidfile_path(cfg, run_id=run_id)
     if st.stale or (st.pid and not st.running):
         clear_pid(pf)
         return f"cleared stale pidfile (pid={st.pid})"
@@ -225,20 +234,25 @@ def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0) -> str:
         except ProcessLookupError:
             pass
     clear_pid(pf)
-    prev = get_status(cfg)
+    prev = get_status(cfg, run_id=run_id)
     prev.running = False
     prev.pid = None
     prev.last_result = f"stopped pid={pid}"
-    write_status_file(status_path(cfg), prev)
+    write_status_file(status_path(cfg, run_id=run_id), prev)
     return f"stopped pid={pid}"
 
 
-def run_loop(cfg: Config, *, strategies: str = "d1", poll_sec: int = DEFAULT_POLL_SEC) -> int:
+def run_loop(cfg: Config, *, strategies: str = "d1", poll_sec: int = DEFAULT_POLL_SEC, run_id: Optional[str] = None) -> int:
     """Foreground poll loop. Called by `paper-loop`. Writes pid if missing (e.g. foreground)."""
-    pf = pidfile_path(cfg)
+    pf = pidfile_path(cfg, run_id=run_id)
     if read_pid(pf) is None:
         write_pid(pf, os.getpid())
-    log = JsonlLogger(cfg.log_path)
+    events_path = (
+        str(Path("logs") / "spec_v2" / run_id / "paper_events.jsonl")
+        if run_id
+        else cfg.log_path
+    )
+    log = JsonlLogger(events_path)
     names = [s.strip() for s in strategies.split(",") if s.strip()][:3]
     if not names:
         names = ["d1"]
@@ -249,30 +263,32 @@ def run_loop(cfg: Config, *, strategies: str = "d1", poll_sec: int = DEFAULT_POL
                 try:
                     from tradingbot.cli import run_paper_iteration
 
-                    rc, summary = run_paper_iteration(cfg, strategy=name, update=True, bar=None)
+                    rc, summary = run_paper_iteration(cfg, strategy=name, update=True, bar=None, run_id=run_id)
                     eq = summary.get("equity")
                     write_status_file(
-                        status_path(cfg),
+                        status_path(cfg, run_id=run_id),
                         RunnerStatus(
                             running=True,
                             pid=os.getpid(),
                             pidfile=str(pf),
-                            started_at=load_status_file(status_path(cfg)).get("started_at"),
+                            started_at=load_status_file(status_path(cfg, run_id=run_id)).get("started_at"),
                             last_iteration_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                             last_result=summary.get("message") or f"rc={rc}",
+                            last_error=None,
                             last_equity=eq,
                             poll_sec=poll_sec,
                         ),
                     )
-                    log.info("paper_loop_iter", strategy=name, rc=rc, **{k: v for k, v in summary.items() if k != "book"})
+                    fields = {k: v for k, v in summary.items() if k not in ("book", "strategy", "rc")}
+                    log.info("paper_loop_iter", strategy=name, rc=rc, **fields)
                 except Exception as e:
                     log.error("paper_loop_iter_error", strategy=name, error=str(e))
-                    st = get_status(cfg)
+                    st = get_status(cfg, run_id=run_id)
                     st.running = True
                     st.pid = os.getpid()
                     st.last_error = str(e)
                     st.last_iteration_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    write_status_file(status_path(cfg), st)
+                    write_status_file(status_path(cfg, run_id=run_id), st)
             time.sleep(max(5, int(poll_sec)))
     except (KeyboardInterrupt, SystemExit):
         log.info("paper_loop_stop", pid=os.getpid())

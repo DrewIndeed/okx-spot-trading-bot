@@ -101,6 +101,41 @@ Base: OKX spot taker **0.1% / side**. Slippage default = **2× fee** (0.2% / sid
 - Telegram alerts: token not configured; stub only, no send.
 - Optional 4H setup path (`strat.signal` + EMA200 filter) is not a default plugin here.
 
+
+## Paper forward runtime
+
+The official spec v2 paper-forward clock uses **this package's `tradingbot` paper runner**, not `okxspot`.
+
+**Why:** `engine/okxspot` is a single-strategy paper/live engine with a Donchian-ATR placeholder, one book, and no F2 calendar, V-C (49-name) book, or 50/50 monthly BTC/ETH benchmark ledger. Porting all of that before T0 would be a significant rework. The `tradingbot` runner already does REST polling of `confirm==1` candles, has start/status/stop + pidfile + restartable state, and can host the three official books. `okxspot live` is never enabled from this path (no `--enable-live`, no `OKX_LIVE_CONFIRM`).
+
+Official T0 = 1Dutc close at 2026-11-12 07:00 UTC+7. Bars before T0 are not counted. Paper only. Sizing = config `C_paper` (never the OKX account; 6,788 USDT wedding funds excluded).
+
+```bash
+# from /workspace/trading-bot
+# Official run (own run_id / state / logs):
+.venv/bin/python -m tradingbot paper-start --strategies v2 --run-id spec_v2_official --poll 60
+.venv/bin/python -m tradingbot paper-status --run-id spec_v2_official
+.venv/bin/python -m tradingbot paper-stop  --run-id spec_v2_official
+
+# A later/alternate unofficial smoke run (separate state dir; does not affect the official clock):
+.venv/bin/python -m tradingbot paper-start --strategies v2 --run-id SMOKE-unofficial-until-Andrew-approves-v2 --poll 60
+```
+
+Logs and status:
+
+- pid / runner status: `state/spec_v2/spec_v2_official/paper.pid`, `state/spec_v2/spec_v2_official/paper_status.json`
+- ledger: `state/spec_v2/spec_v2_official/ledger.json`
+- runner log: `logs/spec_v2/spec_v2_official/paper_runner.log`
+- §7 paper status: `/workspace/sprint/artifacts/spec_v2/spec_v2_official/paper_status.md` and `paper_status.jsonl` (copies at `/workspace/sprint/artifacts/spec_v2/paper_status.md`)
+- freeze: `/workspace/sprint/artifacts/spec_v2/freeze.json` (lock.json is a copy)
+
+Both test suites (tradingbot + okxspot):
+
+```bash
+./scripts/test_all.sh
+# or: make test-all
+```
+
 ## Tests
 
 ` /workspace/trading-bot/.venv/bin/pytest -q ` covers risk (sizing, caps, kill-switch, duplicates, allocated_capital), order fees/slippage, live refusal, portfolio restart, WS mock + optional live smoke, universe/breadth/regime, D1 plugin sizing, and paper-log schema.

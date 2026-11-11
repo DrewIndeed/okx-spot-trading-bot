@@ -193,6 +193,8 @@ class Config:
     slippage_mult: float = 2.0  # slippage = fee_taker * slippage_mult (default 2x fee)
     # Required fixed sub-account allocation. NEVER derived from OKX account balance.
     allocated_capital: float | None = None
+    # Spec v2 official paper notional. Required for v2 paper; never from OKX or 6788.
+    c_paper: float | None = None
     state_path: str = "state/portfolio.json"
     log_path: str = "logs/tradingbot.jsonl"
     timezone: str = "Etc/GMT-7"
@@ -214,6 +216,14 @@ class Config:
         self.allocated_capital = float(self.allocated_capital)
         if self.allocated_capital <= 0:
             raise AllocatedCapitalRequired("allocated_capital must be a positive number.")
+        if self.c_paper is not None:
+            self.c_paper = float(self.c_paper)
+            if self.c_paper <= 0:
+                raise AllocatedCapitalRequired("C_paper must be a positive number.")
+            if abs(self.c_paper - 6788.0) < 1e-9:
+                raise AllocatedCapitalRequired(
+                    "C_paper equals the excluded 6,788 USDT wedding-funds figure; refuse."
+                )
 
     @property
     def slippage(self) -> float:
@@ -271,6 +281,15 @@ def _resolve_capital(data: dict) -> float | None:
     return float(ac if ac is not None else pn)
 
 
+
+def _resolve_c_paper(data: dict) -> float | None:
+    """C_paper is the spec v2 paper notional. Never inferred from an OKX balance or 6788."""
+    raw = data.get("C_paper", data.get("c_paper"))
+    if raw is None:
+        return None
+    return float(raw)
+
+
 def load_config(path: Optional[str] = None) -> Config:
     path = path or os.environ.get("TRADINGBOT_CONFIG") or "config.yaml"
     p = Path(path)
@@ -286,6 +305,7 @@ def load_config(path: Optional[str] = None) -> Config:
         fee_taker=float(data.get("fee_taker") if data.get("fee_taker") is not None else 0.001),
         slippage_mult=float(data.get("slippage_mult") if data.get("slippage_mult") is not None else 2.0),
         allocated_capital=_resolve_capital(data),
+        c_paper=_resolve_c_paper(data),
         state_path=str(data.get("state_path") or "state/portfolio.json"),
         log_path=str(data.get("log_path") or "logs/tradingbot.jsonl"),
         timezone=str(data.get("timezone") or "Etc/GMT-7"),

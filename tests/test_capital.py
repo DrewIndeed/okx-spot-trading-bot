@@ -64,3 +64,18 @@ def test_sizing_uses_allocated_capital():
     assert q10k == pytest.approx(2 * q5k)
     # RiskManager has no account_balance parameter
     assert "account_balance" not in RiskManager.evaluate.__code__.co_varnames
+
+
+def test_c_paper_loaded_from_yaml(tmp_path):
+    p = tmp_path / "cfg.yaml"
+    p.write_text("mode: dry_run\nallocated_capital: 10000\nC_paper: 5000\n")
+    cfg = load_config(str(p))
+    assert cfg.c_paper == 5000
+    assert cfg.allocated_capital == 10000
+
+
+def test_c_paper_wedding_funds_rejected_in_config(tmp_path):
+    p = tmp_path / "cfg.yaml"
+    p.write_text("mode: dry_run\nallocated_capital: 10000\nC_paper: 6788\n")
+    with pytest.raises(AllocatedCapitalRequired, match="wedding-funds"):
+        load_config(str(p))

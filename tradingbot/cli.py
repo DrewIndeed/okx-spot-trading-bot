@@ -216,7 +216,7 @@ def cmd_backtest(cfg: Config, args) -> int:
     return 0
 
 
-def run_paper_iteration(cfg: Config, *, strategy: str = "d1", update: bool = True, bar: str | None = None) -> tuple[int, dict]:
+def run_paper_iteration(cfg: Config, *, strategy: str = "d1", update: bool = True, bar: str | None = None, run_id: str | None = None) -> tuple[int, dict]:
     """One paper cycle on the last closed bar. Shared by paper-once and the 24h loop."""
     log = JsonlLogger(cfg.log_path)
     name = strategy or "d1"
@@ -353,6 +353,11 @@ def run_paper_iteration(cfg: Config, *, strategy: str = "d1", update: bool = Tru
             log.warning("d1_missing_symbols", symbols=missing)
         strat_name = plugin.name
         day = ready
+    elif name in ("v2", "v2-core", "v2-official"):
+        from tradingbot.eval.v2_paper import run_v2_iteration
+        from tradingbot.strategies.spec_v2_common import OFFICIAL_RUN_ID
+        rid = run_id or OFFICIAL_RUN_ID
+        return run_v2_iteration(cfg, run_id=rid, official=(rid == OFFICIAL_RUN_ID), update=update)
     else:
         print(f"Unknown strategy {name}", file=sys.stderr)
         return 2, {"message": f"unknown strategy {name}", "strategy": name}
@@ -497,13 +502,17 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--bar", default=None)
     po.add_argument("--no-update", action="store_true")
     ps = sub.add_parser("paper-start", help="Start 24h paper loop in background (pidfile). Does not place live orders.")
-    ps.add_argument("--strategies", default="d1", help="Comma list, max 3")
+    ps.add_argument("--strategies", default="d1", help="Comma list, or 'v2' for spec v2 official/smoke")
     ps.add_argument("--poll", type=int, default=60, help="Seconds between polls (default 60)")
+    ps.add_argument("--run-id", default=None, help="Paper run id (spec_v2_official for the official v2 clock)")
     pstop = sub.add_parser("paper-stop", help="Stop the background paper loop")
+    pstop.add_argument("--run-id", default=None)
     pstat = sub.add_parser("paper-status", help="Show paper loop status")
+    pstat.add_argument("--run-id", default=None)
     ploop = sub.add_parser("paper-loop", help=argparse.SUPPRESS)  # foreground loop, used by paper-start
     ploop.add_argument("--strategies", default="d1")
     ploop.add_argument("--poll", type=int, default=60)
+    ploop.add_argument("--run-id", default=None)
     ds = sub.add_parser("data-sync", help="Incremental historical download (4H+1Dutc; 1H optional) + quality report")
     ds.add_argument("--bars", default="4H,1Dutc", help="Comma list. Default 4H,1Dutc (1H optional).")
     ds.add_argument("--include-1h", action="store_true", help="Also sync 1H (optional/secondary).")
@@ -537,27 +546,32 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.cmd == "paper-once":
         return cmd_paper_once(cfg, args)
     if args.cmd == "paper-start":
+        from tradingbot.strategies.spec_v2_common import OFFICIAL_RUN_ID
+        run_id = args.run_id
+        if run_id is None and str(getattr(args, "strategies", "")).startswith("v2"):
+            run_id = OFFICIAL_RUN_ID
         from tradingbot.paper_runner import start_background
         pid, msg = start_background(
             cfg,
             strategies=args.strategies,
             poll_sec=args.poll,
-            config_path=args.config,
+            config_path=getattr(args, "config", None),
+            run_id=run_id,
         )
         print(msg)
-        print("Paper / dry-run only. Not started for you unless you invoked paper-start.")
+        print("Paper / dry-run only. No keys. No live. Official v2 first counted bar is the T0 close.")
         return 0
     if args.cmd == "paper-stop":
         from tradingbot.paper_runner import stop_background
-        print(stop_background(cfg))
+        print(stop_background(cfg, run_id=getattr(args, "run_id", None)))
         return 0
     if args.cmd == "paper-status":
         from tradingbot.paper_runner import format_status, get_status
-        print(format_status(get_status(cfg)))
+        print(format_status(get_status(cfg, run_id=getattr(args, "run_id", None))))
         return 0
     if args.cmd == "paper-loop":
         from tradingbot.paper_runner import run_loop
-        return run_loop(cfg, strategies=args.strategies, poll_sec=args.poll)
+        return run_loop(cfg, strategies=args.strategies, poll_sec=args.poll, run_id=getattr(args, "run_id", None))
     if args.cmd == "data-sync":
         return cmd_data_sync(cfg, args)
     if args.cmd == "ws-smoke":

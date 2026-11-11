@@ -11,6 +11,7 @@ fee_taker: 0.001          # 0.1% taker / side (OKX spot default)
 slippage_mult: 2.0        # slippage = 2x fee (0.2%/side)
 allocated_capital: 10000
 paper_notional_usdt: 10000
+C_paper: 10000          # spec v2 official paper notional (required). NEVER from OKX or 6788.
 state_path: state/portfolio.json
 log_path: logs/tradingbot.jsonl
 paper_log_path: logs/paper_book.jsonl

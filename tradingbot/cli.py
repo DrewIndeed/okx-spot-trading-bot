@@ -583,10 +583,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         from tradingbot.paper_runner import format_status, get_status
         run_id = getattr(args, "run_id", None)
         print(format_status(get_status(cfg, run_id=run_id)))
-        status_md = Path("/workspace/sprint/artifacts/spec_v3/paper_status.md")
-        if (run_id or "").startswith("spec_v3") and status_md.exists():
+        from tradingbot.paths import v3_artifact_root
+        status_md = v3_artifact_root() / "paper_status.md"
+        from tradingbot.paper_runner import is_v3_run
+
+        if run_id and run_id != "spec_v3_official":
+            status_md = v3_artifact_root() / run_id / "paper_status.md"
+        if is_v3_run(run_id) and status_md.exists():
             print()
-            print(status_md.read_text())
+            print(status_md.read_text(encoding="utf-8"))
         return 0
     if args.cmd == "paper-loop":
         from tradingbot.paper_runner import run_loop

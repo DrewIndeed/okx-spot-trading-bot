@@ -28,12 +28,13 @@ from tradingbot.eval.v3_funding import (
     last_print_at_or_before,
     parse_archive_funding_time_ms,
 )
+from tradingbot import paths as _paths
 from tradingbot.eval.v3_protocol import ts_saigon
 
 INSTS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP")
-SEED_DIR = Path("/workspace/trading-bot-v3/data/funding/h1_paper_seed")
+SEED_DIR = _paths.v3_root() / "data" / "funding" / "h1_paper_seed"
 SEED_FILE = SEED_DIR / "h1_funding_seed.json"
-NOTES_PATH = Path("/workspace/sprint/artifacts/spec_v3/freeze_notes_h1_seed.json")
+NOTES_PATH = _paths.v3_artifact_root() / "freeze_notes_h1_seed.json"
 # At least 365d before T0 (2026-11-12) plus margin, and include the 2023-01 BTC zip.
 SEED_START_MONTH = "2023-01"
 SAIGON = timezone(timedelta(hours=7))
@@ -444,7 +445,7 @@ def seed_archive(
     notes_path.parent.mkdir(parents=True, exist_ok=True)
     notes_path.write_text(json.dumps(notes, indent=2, default=str))
     # Convenience copy in the v3 artifacts folder (not freeze.json).
-    art_copy = Path("/workspace/trading-bot-v3/artifacts/spec_v3/freeze_notes_h1_seed.json")
+    art_copy = _paths.v3_root() / "artifacts" / "spec_v3" / "freeze_notes_h1_seed.json"
     art_copy.parent.mkdir(parents=True, exist_ok=True)
     art_copy.write_text(notes_path.read_text())
     print(f"wrote notes {notes_path} zips={len(records)} errors={len(errors)} seed_sha={seed_sha}", flush=True)

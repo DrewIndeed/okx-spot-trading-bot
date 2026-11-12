@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from tradingbot import paths as _paths
 from tradingbot.config import Config
 from tradingbot.logutil import JsonlLogger
 from tradingbot.portfolio import Portfolio
@@ -25,7 +26,7 @@ from tradingbot.portfolio import Portfolio
 DEFAULT_PIDFILE = "state/paper.pid"
 DEFAULT_STATUS = "state/paper_status.json"
 DEFAULT_POLL_SEC = 60
-V3_ROOT = Path("/workspace/trading-bot-v3")
+V3_ROOT = _paths.v3_root()
 V3_OFFICIAL_RUN_ID = "spec_v3_official"
 V2_OFFICIAL_RUN_ID = "spec_v2_official"
 
@@ -35,7 +36,14 @@ def is_v3_run(run_id: Optional[str] = None, strategies: Optional[str] = None) ->
         return True
     if strategies and str(strategies).strip().lower().startswith("v3"):
         return True
+    # custom v3 run ids (e.g. "andrew_local"): known once started under <v3_root>/state/spec_v3/<id>
+    if run_id and (V3_ROOT / "state" / "spec_v3" / str(run_id)).is_dir():
+        return True
     return False
+
+
+def _ensure_v3_state_dir(run_id: str) -> None:
+    (V3_ROOT / "state" / "spec_v3" / str(run_id)).mkdir(parents=True, exist_ok=True)
 
 
 def verify_v3_freeze(*args, **kwargs):
@@ -88,6 +96,8 @@ def status_path(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> P
 def pid_is_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if sys.platform == "win32":
+        return _win_pid_is_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -96,6 +106,54 @@ def pid_is_alive(pid: int) -> bool:
         return True
     else:
         return True
+
+
+def _win_pid_is_alive(pid: int) -> bool:
+    """Windows: os.kill(pid, 0) is not a probe there (WinError 11 / terminates). Use OpenProcess."""
+    import ctypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    STILL_ACTIVE = 259
+    ERROR_ACCESS_DENIED = 5
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+    if not handle:
+        return kernel32.GetLastError() == ERROR_ACCESS_DENIED
+    try:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True
+        return code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def terminate_pid(pid: int, *, force: bool = False) -> None:
+    """POSIX: SIGTERM (SIGKILL if force), unchanged. Windows: TerminateProcess via ctypes.
+
+    Raises ProcessLookupError when the process is already gone on both platforms.
+    """
+    if sys.platform == "win32":
+        _win_terminate(pid)
+        return
+    os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+
+
+def _win_terminate(pid: int) -> None:
+    import ctypes
+
+    PROCESS_TERMINATE = 0x0001
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(PROCESS_TERMINATE, False, int(pid))
+    if not handle:
+        raise ProcessLookupError(pid)
+    try:
+        if not kernel32.TerminateProcess(handle, 1):
+            if not _win_pid_is_alive(pid):
+                raise ProcessLookupError(pid)
+            raise OSError(f"TerminateProcess failed for pid {pid}")
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def read_pid(path: Path) -> Optional[int]:
@@ -192,6 +250,7 @@ def start_background(
         return 0, "REFUSED: official v2 runner lives in /workspace/trading-bot (pid 129703); do not start it from the v3 worktree."
     if is_v3_run(run_id, strategies):
         run_id = run_id or V3_OFFICIAL_RUN_ID
+        _ensure_v3_state_dir(run_id)  # so custom ids resolve to spec_v3 paths (pid/status)
         try:
             info = verify_v3_freeze()
         except Exception as e:
@@ -224,14 +283,17 @@ def start_background(
         cwd = os.getcwd()
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    fh = open(log_path, "a")
+    fh = open(log_path, "a", encoding="utf-8")
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    env.setdefault("PYTHONUTF8", "1")
     proc = subprocess.Popen(
         cmd,
         stdout=fh,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        # Windows: detach from the Git Bash console (DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        **({"creationflags": 0x00000008 | 0x00000200} if sys.platform == "win32" else {}),
         cwd=cwd,
         env=env,
     )
@@ -268,7 +330,7 @@ def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: 
         return "not running"
     pid = st.pid
     try:
-        os.kill(pid, signal.SIGTERM)
+        terminate_pid(pid)
     except ProcessLookupError:
         clear_pid(pf)
         return f"process {pid} already gone"
@@ -279,7 +341,7 @@ def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: 
         time.sleep(0.1)
     if pid_is_alive(pid):
         try:
-            os.kill(pid, signal.SIGKILL)
+            terminate_pid(pid, force=True)
         except ProcessLookupError:
             pass
     clear_pid(pf)
@@ -301,6 +363,7 @@ def run_loop(cfg: Config, *, strategies: str = "d1", poll_sec: int = DEFAULT_POL
         raise SystemExit("REFUSED: official v2 runner lives in /workspace/trading-bot; do not start it from the v3 worktree.")
     if is_v3_run(run_id, strategies):
         run_id = run_id or V3_OFFICIAL_RUN_ID
+        _ensure_v3_state_dir(run_id)
         verify_v3_freeze()
     pf = pidfile_path(cfg, run_id=run_id)
     if read_pid(pf) is None:

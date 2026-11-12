@@ -16,7 +16,7 @@ import pandas as pd
 
 from tradingbot.types import Candle
 
-DEFAULT_FAVORITES = Path("/workspace/crypto/favorites.txt")
+DEFAULT_FAVORITES = Path("/workspace/crypto/favorites.txt")  # legacy box path; see tradingbot.paths
 B_SLOTS = 20
 MIN_HISTORY_DAYS = 200
 MEDIAN_QUOTE_VOL_MIN = 2_000_000.0  # $2M 30d median quote vol (cache field [6] / volCcy)
@@ -25,8 +25,10 @@ VOL_MIN_PERIODS = 20
 
 
 def load_favorites(path: str | Path | None = None) -> list[str]:
-    p = Path(path or DEFAULT_FAVORITES)
-    text = p.read_text().strip()
+    from tradingbot.paths import favorites_path
+
+    p = favorites_path(path)
+    text = p.read_text(encoding="utf-8").strip()
     bases = [t for t in text.replace(",", " ").split() if t]
     # BTC first, as in setup.py / paper_book.py / daily_bo.refresh
     if "BTC" in bases:

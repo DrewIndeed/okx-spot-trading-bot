@@ -16,7 +16,7 @@ state_path: state/portfolio.json
 log_path: logs/tradingbot.jsonl
 paper_log_path: logs/paper_book.jsonl
 timezone: Etc/GMT-7
-universe_file: /workspace/crypto/favorites.txt
+universe_file: config/v3/favorites.txt  # repo copy; TB_FAVORITES overrides
 crypto_data_dir: /workspace/crypto/data
 
 risk:

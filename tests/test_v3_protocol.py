@@ -9,6 +9,14 @@ import pandas as pd
 import pytest
 
 from tradingbot.eval import v3_protocol as P
+from tradingbot import paths as _paths
+
+
+@pytest.fixture(autouse=True)
+def _portable_brief(monkeypatch):
+    # Frozen BRIEF_PATH is the box path; check the resolved copy (config/v3 or TB_V3_BRIEF)
+    # against the same frozen BRIEF_SHA256_EXPECTED. The frozen file itself is not edited.
+    monkeypatch.setattr(P, "BRIEF_PATH", _paths.v3_brief_path())
 
 
 def test_brief_hash_matches_cypheous_lock():

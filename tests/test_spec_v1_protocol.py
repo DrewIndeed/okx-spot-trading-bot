@@ -110,6 +110,7 @@ def test_wedding_funds_constant_not_used_as_default():
     assert isinstance(h, str) and len(h) == 64
 
 
+@pytest.mark.skipif(not Path("/workspace/trading-bot/tradingbot").exists(), reason="box-only: official tree /workspace/trading-bot absent")
 def test_okx_balance_not_imported():
     import sys
     # The eval package must not import the readonly balance modules.

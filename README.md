@@ -139,3 +139,33 @@ Both test suites (tradingbot + okxspot):
 ## Tests
 
 ` /workspace/trading-bot/.venv/bin/pytest -q ` covers risk (sizing, caps, kill-switch, duplicates, allocated_capital), order fees/slippage, live refusal, portfolio restart, WS mock + optional live smoke, universe/breadth/regime, D1 plugin sizing, and paper-log schema.
+
+
+## Run on Windows (Git Bash) — branch `v3-local`
+
+Paper only. No API keys, no live orders, sizing from `C_paper=10000` only. Python 3.14 (3.11+ works).
+Freeze inputs are vendored in `config/v3/` (`favorites.txt`, `freeze.json`, `strategy-v3-brief.md`);
+override with `TB_FAVORITES`, `TB_V3_FREEZE`, `TB_V3_BRIEF`. State/logs/`RUNNING.lock` go under the repo
+root (override `TB_V3_ROOT`); local artifacts go to `state/artifacts/spec_v3` (override `TB_V3_ARTIFACTS`).
+
+```bash
+cd /c/Users/ADMIN/Documents/GitHub/okx-spot-trading-bot
+git fetch origin
+git switch v3-local                      # first time: git switch -c v3-local --track origin/v3-local
+py -3.14 -m venv .venv
+source .venv/Scripts/activate
+export PYTHONUTF8=1                      # utf-8 file I/O on Windows
+python -m pip install -U pip
+pip install -e .
+python -m pytest                         # box-only tests skip with a reason
+python -c "from tradingbot.eval.v3_paper import verify_freeze, format_hash_verification as f; print(f(verify_freeze()))"
+python -m tradingbot paper-start --strategies v3 --run-id andrew_local --poll 60
+python -m tradingbot paper-status --run-id andrew_local
+python -m tradingbot paper-stop --run-id andrew_local
+python -m tradingbot backtest --strategies d1 --bar 1Dutc --days 400
+```
+
+The freeze check must print `sha256_v3_code 533ee52e…91bb`. It hashes the six frozen `tradingbot/eval/v3_*.py`
+files under their official label paths with LF-normalized bytes, so a CRLF checkout of unchanged code still passes;
+any real edit to a frozen file is refused (that would be v3.1 and needs Cypheous' approval).
+A local run id (`andrew_local`) is not the official `spec_v3_official` forward record.

@@ -1,9 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "tradingbot"
 version = "0.1.0"
 description = "OKX spot paper/dry-run trading engine (T1 scaffold)"
 requires-python = ">=3.11"
-dependencies = ["requests", "pandas", "numpy"]
+# Lower bounds are the first releases with CPython 3.14 wheels (no source builds on Windows).
+dependencies = [
+    "requests>=2.32",
+    "pandas>=2.3.3",
+    "numpy>=2.3.3",
+    "pyarrow>=22.0.0",
+    "pyyaml>=6.0.3",
+    "pydantic>=2.12",
+    "httpx>=0.27",
+    "websockets>=13",
+    "matplotlib>=3.10.7",
+    "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+include = ["tradingbot*"]
+
+[tool.setuptools.package-data]
+tradingbot = ["**/*.csv", "**/*.json", "**/*.yaml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

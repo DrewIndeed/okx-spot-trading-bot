@@ -37,16 +37,17 @@ from tradingbot.eval.v3_hypotheses import build_hypotheses, params_for
 from tradingbot.eval.v3_load import load_panel as v3_load_panel
 from tradingbot.eval.v3_protocol import sha256_params, sha256_paths, ts_saigon
 from tradingbot.strategies import spec_v2_common as P
+from tradingbot import paths as _paths
 from tradingbot.universe import inst_id, load_favorites
 
 SAIGON = ZoneInfo("Asia/Saigon")
 T0_BAR = pd.Timestamp(P.T0_BAR_OPEN_UTC.replace("Z", ""))  # 2026-11-11
 T0_LABEL = "2026-11-12 07:00 UTC+7 (1Dutc close)"
 OFFICIAL_RUN_ID = "spec_v3_official"
-V3_ROOT = Path("/workspace/trading-bot-v3")
+V3_ROOT = _paths.v3_root()
 V3_CACHE = V3_ROOT / "data" / "cache"
-ARTIFACT_ROOT = Path("/workspace/sprint/artifacts/spec_v3")
-FREEZE_PATH = ARTIFACT_ROOT / "freeze.json"
+ARTIFACT_ROOT = _paths.v3_artifact_root()
+FREEZE_PATH = _paths.v3_freeze_path()
 LOCK_PATH = V3_ROOT / "RUNNING.lock"
 REST_FUNDING_URL = REST_URL
 BOOK_ORDER = ("H5", "H1", "H4", "V-C", "BENCH-50-50")
@@ -89,11 +90,15 @@ def c_paper_official(cfg: Config) -> float:
 
 
 def verify_freeze(path: Path | str = FREEZE_PATH) -> dict:
-    freeze = json.loads(Path(path).read_text())
-    code = sha256_paths()
+    freeze = json.loads(Path(path).read_text(encoding="utf-8"))
+    # Portable form of frozen sha256_paths(): same labels, bytes of the imported code.
+    code = _paths.frozen_code_hash()
     expected_code = freeze["sha256_v3_code"]
     if code != expected_code:
-        raise FreezeMismatch(f"code hash mismatch: got {code} expected {expected_code}")
+        raise FreezeMismatch(
+            f"code hash mismatch: got {code} expected {expected_code} "
+            "(on Windows, check git core.autocrlf=false so frozen files keep LF bytes)"
+        )
     params: dict[str, str] = {}
     for hid in ("H1", "H4", "H5"):
         got = sha256_params(params_for(hid))
@@ -588,7 +593,7 @@ def run_v3_iteration(
     if verify:
         try:
             hashes = verify_freeze()
-            notes.append("Freeze hashes verified against /workspace/sprint/artifacts/spec_v3/freeze.json.")
+            notes.append(f"Freeze hashes verified against {FREEZE_PATH.as_posix()}.")
             notes.append(f"sha256_v3_code={hashes['sha256_v3_code']}")
         except FreezeMismatch as e:
             errors.append(str(e))

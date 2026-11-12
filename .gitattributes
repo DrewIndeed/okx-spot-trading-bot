@@ -1,0 +1,5 @@
+# Frozen v3 code and vendored freeze inputs are hash-verified byte-for-byte.
+# Keep LF on every OS (Windows core.autocrlf would otherwise break the freeze check).
+* text=auto eol=lf
+config/v3/** -text
+tradingbot/eval/v3_*.py -text

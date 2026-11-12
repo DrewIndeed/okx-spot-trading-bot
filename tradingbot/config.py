@@ -198,7 +198,7 @@ class Config:
     state_path: str = "state/portfolio.json"
     log_path: str = "logs/tradingbot.jsonl"
     timezone: str = "Etc/GMT-7"
-    universe_file: str = "/workspace/crypto/favorites.txt"
+    universe_file: str = "config/v3/favorites.txt"
     crypto_data_dir: str = "/workspace/crypto/data"  # read-only seed; never write here
     paper_log_path: str = "logs/paper_book.jsonl"
     risk: RiskConfig = field(default_factory=RiskConfig)
@@ -309,7 +309,7 @@ def load_config(path: Optional[str] = None) -> Config:
         state_path=str(data.get("state_path") or "state/portfolio.json"),
         log_path=str(data.get("log_path") or "logs/tradingbot.jsonl"),
         timezone=str(data.get("timezone") or "Etc/GMT-7"),
-        universe_file=str(data.get("universe_file") or "/workspace/crypto/favorites.txt"),
+        universe_file=str(data.get("universe_file") or "config/v3/favorites.txt"),
         crypto_data_dir=str(data.get("crypto_data_dir") or "/workspace/crypto/data"),
         paper_log_path=str(data.get("paper_log_path") or "logs/paper_book.jsonl"),
         risk=_risk_from(data),

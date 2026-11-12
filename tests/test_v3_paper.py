@@ -17,7 +17,9 @@ from tradingbot.eval.v3_protocol import sha256_params, sha256_paths
 from tradingbot.eval.v3_hypotheses import params_for
 
 
-FREEZE = Path("/workspace/sprint/artifacts/spec_v3/freeze.json")
+from tradingbot import paths as _paths
+
+FREEZE = _paths.v3_freeze_path()  # repo copy config/v3/freeze.json, env TB_V3_FREEZE
 OFFICIAL_V3 = "spec_v3_official"
 
 
@@ -33,7 +35,7 @@ def test_verify_freeze_matches_official_lock():
     info = verify_freeze(FREEZE)
     freeze = json.loads(FREEZE.read_text())
     assert info["ok"] is True
-    assert info["sha256_v3_code"] == freeze["sha256_v3_code"] == sha256_paths()
+    assert info["sha256_v3_code"] == freeze["sha256_v3_code"] == _paths.frozen_code_hash()
     assert info["sha256_v3_code"].startswith("533ee52e")
     for hid in ("H1", "H4", "H5"):
         expected = next(c["sha256_params"] for c in freeze["candidates"] if c["id"] == hid)
@@ -45,7 +47,7 @@ def test_verify_freeze_refuses_code_mismatch(monkeypatch):
     from tradingbot.eval import v3_paper as vp
     from tradingbot.eval.v3_paper import FreezeMismatch, verify_freeze
 
-    monkeypatch.setattr(vp, "sha256_paths", lambda paths=None: "0" * 64)
+    monkeypatch.setattr(vp._paths, "frozen_code_hash", lambda code_root=None: "0" * 64)
     with pytest.raises(FreezeMismatch, match="code"):
         verify_freeze(FREEZE)
 
@@ -138,7 +140,7 @@ def test_v3_paths_stay_in_v3_worktree():
     from tradingbot.paper_runner import pidfile_path, status_path
 
     dirs = run_dirs(OFFICIAL_RUN_ID)
-    root = Path("/workspace/trading-bot-v3")
+    root = _paths.v3_root()
     official = Path("/workspace/trading-bot")
     live = Path("/workspace/trading-bot-live")
     for key in ("state", "logs", "pidfile"):

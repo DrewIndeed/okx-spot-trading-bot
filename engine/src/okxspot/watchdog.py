@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import subprocess
+import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,6 +27,37 @@ class SupervisorError(OkxSpotError):
 
 class _Alerter(Protocol):
     def send(self, level: str, message: str, event: str | None = None) -> None: ...
+
+
+class PauseDetector:
+    """Detect a box/VM pause or a wall-clock step between two observations.
+
+    CLOCK_MONOTONIC does not advance while the VM is paused (Firecracker
+    snapshot/restore on this box), but the wall clock is stepped forward on
+    resume. A heartbeat aged by wall clock then looks stale although the
+    process was frozen with everything else. Returns the unexplained wall-clock
+    jump in seconds (0.0 when below ``threshold_seconds``).
+    """
+
+    def __init__(
+        self,
+        *,
+        wall: Callable[[], float],
+        monotonic: Callable[[], float],
+        threshold_seconds: float = 5.0,
+    ) -> None:
+        self._wall = wall
+        self._mono = monotonic
+        self.threshold_seconds = float(threshold_seconds)
+        self._last: tuple[float, float] | None = None
+
+    def check(self) -> float:
+        wall, mono = self._wall(), self._mono()
+        last, self._last = self._last, (wall, mono)
+        if last is None:
+            return 0.0
+        jump = (wall - last[0]) - (mono - last[1])
+        return jump if abs(jump) >= self.threshold_seconds else 0.0
 
 
 def is_protected_pid(pid: int, cmdline: str | None = None) -> bool:
@@ -65,6 +97,10 @@ class Supervisor:
         cwd: str | Path | None = None,
         child_heartbeat_path: str | Path | None = None,
         child_stale_seconds: float = 90.0,
+        monotonic: Callable[[], float] | None = None,
+        child_start_grace_seconds: float | None = None,
+        pause_threshold_seconds: float = 5.0,
+        terminate_timeout_seconds: float = 10.0,
     ) -> None:
         if max_restarts_per_hour < 1:
             raise ValueError("max_restarts_per_hour must be >= 1")
@@ -82,6 +118,15 @@ class Supervisor:
         self.cwd = cwd
         self.child_heartbeat_path = Path(child_heartbeat_path) if child_heartbeat_path else None
         self.child_stale_seconds = float(child_stale_seconds)
+        # With an injected wall clock and no monotonic one (older tests), use
+        # the same source: no pause is ever simulated there.
+        self._mono = monotonic or (self._now if now is not None else time.monotonic)
+        self.child_start_grace_seconds = (
+            float(child_start_grace_seconds) if child_start_grace_seconds is not None else self.child_stale_seconds
+        )
+        self.terminate_timeout_seconds = float(terminate_timeout_seconds)
+        self._pause = PauseDetector(wall=self._now, monotonic=self._mono, threshold_seconds=pause_threshold_seconds)
+        self._grace_until = 0.0
         self.child: Any = None
         self._restart_at: list[float] = []
         self._backoff_index = 0
@@ -104,6 +149,9 @@ class Supervisor:
         if pid in self._protected or is_protected_pid(pid, cmdline):
             raise SupervisorError(f"refusing to manage protected pid {pid}")
         self.child = proc
+        # A fresh child needs time to import and write its first beat; the
+        # heartbeat file still holds the previous child's timestamp until then.
+        self._grace_until = self._mono() + self.child_start_grace_seconds
         self.write_heartbeat()
 
     def write_heartbeat(self) -> None:
@@ -135,16 +183,43 @@ class Supervisor:
             self.child.terminate()
         elif pid:
             os.kill(pid, signal.SIGTERM)
+        # Reap before a replacement starts so two runners never overlap.
+        waiter = getattr(self.child, "wait", None)
+        if callable(waiter):
+            try:
+                waiter(timeout=self.terminate_timeout_seconds)
+            except subprocess.TimeoutExpired:
+                killer = getattr(self.child, "kill", None)
+                if callable(killer):
+                    killer()
+                    waiter(timeout=self.terminate_timeout_seconds)
+
+    def _note_pause(self) -> None:
+        jump = self._pause.check()
+        if jump:
+            self._grace_until = max(self._grace_until, self._mono() + self.child_stale_seconds)
+            self.alerter.send(
+                "warning",
+                f"box pause or wall-clock step of {jump:.0f}s detected; resyncing child heartbeat, not restarting",
+                event="box_pause",
+            )
 
     def _child_frozen(self) -> bool:
         if self.child_heartbeat_path is None or not self.child_heartbeat_path.exists():
+            return False
+        if self._mono() < self._grace_until:
             return False
         try:
             data = json.loads(self.child_heartbeat_path.read_text(encoding="utf-8"))
             ts = datetime.fromisoformat(str(data.get("ts")))
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=UTC)
+            beat_pid = int(data.get("pid") or 0)
         except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            return True
+        child_pid = int(getattr(self.child, "pid", 0) or 0)
+        if beat_pid and child_pid and beat_pid != child_pid:
+            # Grace is over and the current child never wrote a beat: hung at start.
             return True
         age = self._now() - ts.timestamp()
         return age > self.child_stale_seconds
@@ -156,6 +231,7 @@ class Supervisor:
             cycles += 1
             if max_cycles is not None and cycles > max_cycles:
                 return
+            self._note_pause()
             self.kill_switch.reload()
             if self.kill_switch.is_tripped:
                 self._terminate_child()
@@ -259,12 +335,29 @@ def monitor_loop(
     now: Callable[[], float] | None = None,
     sleeper: Callable[[float], None] | None = None,
     max_cycles: int | None = None,
+    monotonic: Callable[[], float] | None = None,
+    pause_threshold_seconds: float = 5.0,
 ) -> bool:
-    """Fail-closed monitor loop. Returns True once the kill switch is tripped."""
+    """Fail-closed monitor loop. Returns True once the kill switch is tripped.
+
+    After a detected box pause / wall-clock step the check is skipped once so
+    the (also just-resumed) supervisor can refresh its heartbeat.
+    """
     sleep = sleeper or _default_sleep
+    wall = now or (lambda: datetime.now(UTC).timestamp())
+    pause = PauseDetector(
+        wall=wall,
+        monotonic=monotonic or (wall if now is not None else time.monotonic),
+        threshold_seconds=pause_threshold_seconds,
+    )
     cycles = 0
     while True:
         cycles += 1
+        if pause.check():
+            if max_cycles is not None and cycles >= max_cycles:
+                return False
+            sleep(min(poll_seconds, max_age_seconds / 2))
+            continue
         if monitor_heartbeat(
             heartbeat_path=heartbeat_path,
             kill_switch=kill_switch,

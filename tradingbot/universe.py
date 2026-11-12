@@ -16,7 +16,7 @@ import pandas as pd
 
 from tradingbot.types import Candle
 
-DEFAULT_FAVORITES = Path("/workspace/crypto/favorites.txt")
+DEFAULT_FAVORITES = Path("data/universe_seed.txt")
 B_SLOTS = 20
 MIN_HISTORY_DAYS = 200
 MEDIAN_QUOTE_VOL_MIN = 2_000_000.0  # $2M 30d median quote vol (cache field [6] / volCcy)
@@ -28,6 +28,15 @@ def load_favorites(path: str | Path | None = None) -> list[str]:
     p = Path(path or DEFAULT_FAVORITES)
     text = p.read_text().strip()
     bases = [t for t in text.replace(",", " ").split() if t]
+    # Normalize BTC to plain "BTC" (file may have "BTC-USDT" or "BTC")
+    normed = []
+    for b in bases:
+        u = b.upper()
+        if u == "BTC" or u == "BTC-USDT":
+            normed.append("BTC")
+        else:
+            normed.append(b)
+    bases = normed
     # BTC first, as in setup.py / paper_book.py / daily_bo.refresh
     if "BTC" in bases:
         bases = ["BTC"] + [s for s in bases if s != "BTC"]

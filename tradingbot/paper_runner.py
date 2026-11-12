@@ -94,6 +94,9 @@ def pid_is_alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True
+    except OSError:
+        # Windows raises OSError (WinError 87) for invalid pid instead of ProcessLookupError
+        return False
     else:
         return True
 
@@ -156,27 +159,31 @@ def get_status(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> Ru
 
 
 def format_status(st: RunnerStatus) -> str:
+    from tradingbot.termfmt import kv, title
+
     if st.running:
         state = f"running  pid={st.pid}"
     elif st.stale:
         state = f"not running (stale pidfile pid={st.pid})"
     else:
         state = "not running"
-    lines = [
-        f"paper runner: {state}",
-        f"pidfile: {st.pidfile}",
-        f"started_at: {st.started_at or '—'}",
-        f"last_iteration_at: {st.last_iteration_at or '—'}",
-        f"last_result: {st.last_result or '—'}",
-        f"last_equity: {st.last_equity if st.last_equity is not None else '—'}",
-        f"last_error: {st.last_error or '—'}",
-        f"poll_sec: {st.poll_sec or '—'}",
-        "Paper / dry-run only. Never live. Capital is allocated_capital, not OKX main balance.",
-    ]
+    note = "Paper / dry-run only. Never live. Capital is allocated_capital, not OKX main balance."
     if "spec_v3" in str(st.pidfile):
-        lines.insert(-1, "status_md: /workspace/sprint/artifacts/spec_v3/paper_status.md")
-        lines[-1] = "Paper / dry-run only. Never live. C_paper=10000, not OKX main balance. Not a strategy PASS."
-    return "\n".join(lines)
+        note = "Paper / dry-run only. Never live. C_paper=10000, not OKX main balance. Not a strategy PASS."
+    pairs = [
+        ("Runner", state),
+        ("Pidfile", st.pidfile),
+        ("Started", st.started_at or "-"),
+        ("Last iteration", st.last_iteration_at or "-"),
+        ("Last result", st.last_result or "-"),
+        ("Last equity", "-" if st.last_equity is None else str(st.last_equity)),
+        ("Last error", st.last_error or "-"),
+        ("Poll sec", "-" if not st.poll_sec else str(st.poll_sec)),
+    ]
+    text = title("Paper status") + "\n" + kv(pairs) + "\n" + note
+    if "spec_v3" in str(st.pidfile):
+        text += "\nstatus_md: /workspace/sprint/artifacts/spec_v3/paper_status.md"
+    return text
 
 
 def start_background(

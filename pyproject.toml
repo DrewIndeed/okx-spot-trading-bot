@@ -3,7 +3,14 @@ name = "tradingbot"
 version = "0.1.0"
 description = "OKX spot paper/dry-run trading engine (T1 scaffold)"
 requires-python = ">=3.11"
-dependencies = ["requests", "pandas", "numpy"]
+dependencies = ["requests", "pandas", "numpy", "pyarrow", "pytest"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tradingbot*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

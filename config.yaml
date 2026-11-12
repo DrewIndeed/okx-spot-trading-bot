@@ -16,15 +16,15 @@ state_path: state/portfolio.json
 log_path: logs/tradingbot.jsonl
 paper_log_path: logs/paper_book.jsonl
 timezone: Etc/GMT-7
-universe_file: /workspace/crypto/favorites.txt
-crypto_data_dir: /workspace/crypto/data
+universe_file: data/universe_seed.txt
+crypto_data_dir: data
 
 risk:
   risk_pct: 0.0075        # 0.75% of paper equity, clamped to 0.5–1%
   risk_pct_min: 0.005
   risk_pct_max: 0.01
   daily_loss_cap: 0.03
-  max_drawdown: 0.10
+  max_drawdown: 0.30        # paper kill switch. Was 0.10, too tight vs the 30% research cap.
   max_exposure_asset: 0.25
   max_exposure_total: 1.00
   max_open_positions: 20

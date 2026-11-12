@@ -96,6 +96,28 @@ class OkxRestFeed:
             time.sleep(0.7 * (i + 1))
         return None
 
+    def get_spot_tickers(self) -> dict[str, Ticker]:
+        """One public call for every spot ticker. Keys are instId, e.g. BTC-USDT."""
+        data = self.get("/market/tickers", instType="SPOT")
+        out: dict[str, Ticker] = {}
+        if not data:
+            return out
+        for row in data:
+            inst = str(row.get("instId") or "")
+            if not inst or row.get("last") in (None, ""):
+                continue
+            try:
+                out[inst] = Ticker(
+                    inst_id=inst,
+                    last=float(row["last"]),
+                    ts=int(row.get("ts") or 0),
+                    bid=float(row["bidPx"]) if row.get("bidPx") else None,
+                    ask=float(row["askPx"]) if row.get("askPx") else None,
+                )
+            except (TypeError, ValueError):
+                continue
+        return out
+
     def get_ticker(self, inst_id: str) -> Optional[Ticker]:
         data = self.get("/market/ticker", instId=inst_id)
         if not data:
@@ -124,6 +146,10 @@ class OkxRestFeed:
         if update:
             have = self._refresh(inst_id, bar, have, days=days or 365)
         candles = [have[k] for k in sorted(have)]
+        # Apply days window to cached results too (not just REST refresh target)
+        if days is not None and days > 0:
+            cutoff = int(time.time() * 1000) - days * 86400000
+            candles = [c for c in candles if c.ts >= cutoff]
         if start_ms is not None:
             candles = [c for c in candles if c.ts >= start_ms]
         if end_ms is not None:

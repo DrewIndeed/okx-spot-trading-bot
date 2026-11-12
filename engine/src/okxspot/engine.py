@@ -8,7 +8,16 @@ from okxspot.alerts import Alerter, LogAlerter
 from okxspot.config import Settings
 from okxspot.exchange.base import Exchange
 from okxspot.exchange.paper import PaperExchange
+from okxspot.errors import LiveGuardError
 from okxspot.killswitch import KillSwitch
+from okxspot.live_guards import (
+    FILL_SYNC_TS_KEY,
+    POSITION_MISMATCH_PREFIX,
+    FillGapError,
+    fill_sync_decision,
+    is_untrusted_ledger_reason,
+    position_mismatches,
+)
 from okxspot.models import (
     Candle,
     ClosedTrade,
@@ -77,6 +86,8 @@ class TradingEngine:
         self._cancel_done = False
         self.untrusted_price = False
         self._untrusted_stop = False
+        self._pending_fill_sync_ts: datetime | None = None
+        self._position_check_failures = 0
 
     def flatten_client_order_id(self, pos: Position, purpose: OrderPurpose = OrderPurpose.FLATTEN) -> str:
         token = "flatten" if purpose is OrderPurpose.FLATTEN else "softstop"
@@ -198,7 +209,23 @@ class TradingEngine:
             self.exchange.cancel_algos(inst)
             self._exit_position(inst, pos.qty, "softstop", last, OrderPurpose.STOP, opened_at=pos.opened_at)
 
+    @property
+    def ledger_untrusted(self) -> bool:
+        """Fill gap / position mismatch: the book may be wrong, so never sell from it."""
+        if self.kill_switch is not None:
+            self.kill_switch.reload()
+            if self.kill_switch.is_tripped and is_untrusted_ledger_reason(self.kill_switch.reason):
+                return True
+        return is_untrusted_ledger_reason(self.risk.halt_reason)
+
     def force_flatten(self, reason: str) -> None:
+        if self.ledger_untrusted:
+            self.alerter.send(
+                "critical",
+                f"flatten skipped, ledger untrusted ({reason}); manual reconcile and re-arm required",
+                event="kill_switch",
+            )
+            return
         self.alerter.send("critical", f"kill-switch flatten: {reason}")
         for inst, pos in list(self.book.positions.items()):
             if pos.qty <= 0:
@@ -211,12 +238,95 @@ class TradingEngine:
             raise RuntimeError("injected crash before persist")
         self._persist()
 
-    def sync_exchange_fills(self) -> None:
+    def sync_exchange_fills(self, now: datetime | None = None) -> None:
         loader = getattr(self.exchange, "load_fill_cursor", None)
-        if callable(loader):
-            loader(self.state.get_kv("fill_cursor"))
-        self.exchange.sync()
+        if not callable(loader):
+            # Paper/backtest: no venue fill feed, no 3-day window.
+            self.exchange.sync()
+            self._drain()
+            return
+        moment = now or datetime.now(UTC)
+        cursor = self.state.get_kv("fill_cursor")
+        raw_ts = self.state.get_kv(FILL_SYNC_TS_KEY)
+        last_sync = datetime.fromisoformat(raw_ts) if raw_ts else None
+        history = getattr(self.exchange, "sync_history", None)
+        action, reason = fill_sync_decision(
+            last_sync=last_sync,
+            now=moment,
+            ledger_nonempty=bool(cursor or self.book.positions or self.book.applied),
+            history_supported=callable(history),
+            settings=self.settings.guards,
+        )
+        if action == "refuse":
+            self._trip_untrusted(reason, source="fill_guard")
+            raise FillGapError(f"refusing to trade: {reason}")
+        loader(cursor)
+        if action == "history" and callable(history):
+            self.alerter.send("warning", f"fill sync gap; {reason}", event="fill_gap")
+            history()
+        else:
+            self.exchange.sync()
         self._drain()
+        if action == "history" and not getattr(self.exchange, "last_sync_complete", True):
+            # Page cap hit inside the gap: keep the old time so the next sync
+            # stays on /trade/fills-history until it is fully caught up.
+            return
+        # Recorded on disk only by _persist, together with the cursor and book.
+        self._pending_fill_sync_ts = moment
+
+    def check_positions(self, now: datetime | None = None) -> bool:
+        """Compare venue balances for traded assets with the bot ledger. False = not verified."""
+        getter = getattr(self.exchange, "get_balances", None)
+        if not callable(getter):
+            return True
+        if self.ledger_untrusted:
+            return False  # already halted; wait for the operator's reconcile + re-arm
+        quote = self.settings.quote_ccy.upper()
+        ccys = sorted({s.split("-")[0].upper() for s in self.settings.symbols} | {quote})
+        mismatches: list[str] = []
+        for attempt in range(2):
+            try:
+                balances = getter(ccys)
+            except Exception as exc:
+                self._position_check_failures += 1
+                self.alerter.send(
+                    "warning", f"position check failed: {type(exc).__name__}", event="position_check"
+                )
+                if self._position_check_failures >= self.settings.guards.position_check_max_failures:
+                    self._trip_untrusted(
+                        f"{POSITION_MISMATCH_PREFIX}:unverifiable after "
+                        f"{self._position_check_failures} balance read failures",
+                        source="position_guard",
+                    )
+                return False
+            self._position_check_failures = 0
+            mismatches = position_mismatches(
+                self.book, balances, symbols=list(self.settings.symbols), quote_ccy=quote,
+                settings=self.settings.guards,
+            )
+            if not mismatches:
+                return True
+            if attempt == 0:
+                # A fill may have landed between the fill sync and the balance read.
+                self.sync_exchange_fills(now=now)
+        self._trip_untrusted(f"{POSITION_MISMATCH_PREFIX}:" + "; ".join(mismatches), source="position_guard")
+        return False
+
+    def assert_positions_at_start(self) -> None:
+        """Startup is fail-closed: an unverified or mismatched ledger refuses to start."""
+        if not self.check_positions():
+            reason = self.kill_switch.reason if self.kill_switch is not None else self.risk.halt_reason
+            raise LiveGuardError(f"refusing live start: positions not verified ({reason or 'balance read failed'})")
+
+    def _trip_untrusted(self, reason: str, *, source: str) -> None:
+        if self.kill_switch is not None:
+            # File-backed, survives restarts, cleared only by a manual re-arm.
+            # cancel_open stops resting entries; stops stay; no flatten (see force_flatten).
+            self.kill_switch.trip(reason, cancel_open=True, source=source)
+        else:
+            self.risk.halted = True
+            self.risk.halt_reason = reason
+        self.alerter.send("critical", f"halt: {reason}", event="kill_switch")
 
     def _handle_signal(self, signal: Signal, bar: Candle) -> None:
         if self.kill_switch is not None and self.kill_switch.is_tripped:
@@ -372,7 +482,7 @@ class TradingEngine:
 
     def _persist(self) -> None:
         cursor = getattr(self.exchange, "fill_cursor", None)
-        self.state.save_book(self.book, fill_cursor=cursor)
+        self.state.save_book(self.book, fill_cursor=cursor, fill_sync_ts=self._pending_fill_sync_ts)
         commit = getattr(self.exchange, "commit_fill_cursor", None)
         if callable(commit):
             commit()

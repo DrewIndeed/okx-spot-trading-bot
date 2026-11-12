@@ -282,6 +282,7 @@ def run_live_loop(settings: Settings, client: OkxClient, *, once: bool) -> None:
     recheck_account_from_exchange(engine, settings)
     report = engine.orders.reconcile()
     engine.sync_exchange_fills()
+    engine.assert_positions_at_start()
     log.info(
         "reconciled",
         adopted=len(report.adopted),
@@ -331,7 +332,8 @@ def _loop(
             feed.fallback_reason = None
         # Sync, software stops, and flatten retries must run even when the
         # feed only has unconfirmed mid-session bars.
-        engine.sync_exchange_fills()
+        engine.sync_exchange_fills(now=moment)
+        engine.check_positions(now=moment)
         engine.enforce_software_stops()
         tripped = engine.kill_switch is not None and engine.kill_switch.is_tripped
         if (engine.risk.halted or tripped) and engine.book.positions:

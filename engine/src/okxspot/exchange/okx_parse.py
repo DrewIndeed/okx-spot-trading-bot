@@ -153,6 +153,29 @@ def parse_account_view(payload: dict[str, object], quote_ccy: str) -> AccountVie
     return AccountView(quote_ccy=quote_ccy, available_quote=available, total_eq=total_eq)
 
 
+def parse_balances(payload: dict[str, object], ccys: list[str]) -> dict[str, Decimal]:
+    """Per-ccy cash balance (cashBal, else availBal + frozenBal). Missing ccy → 0."""
+    data = payload.get("data")
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        raise OkxApiError("balance", "empty balance payload")
+    wanted = {c.upper() for c in ccys}
+    out = {c: Decimal("0") for c in wanted}
+    details = data[0].get("details")
+    if isinstance(details, list):
+        for item in details:
+            if not isinstance(item, dict):
+                continue
+            ccy = str(item.get("ccy") or "").upper()
+            if ccy not in wanted:
+                continue
+            cash = item.get("cashBal")
+            if cash not in (None, ""):
+                out[ccy] = _dec(cash)
+            else:
+                out[ccy] = _dec(item.get("availBal")) + _dec(item.get("frozenBal"))
+    return out
+
+
 class Balance:
     def __init__(self, ccy: str, available: Decimal, frozen: Decimal) -> None:
         self.ccy = ccy

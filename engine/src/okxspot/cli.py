@@ -14,6 +14,8 @@ from okxspot.logging_config import configure_logging
 from okxspot.demo import demo_keys_from_env, missing_demo_keys_message
 from okxspot.alerts import build_alerter
 from okxspot.killswitch import KillSwitch
+from okxspot.live_guards import FILL_SYNC_TS_KEY
+from okxspot.state import StateStore
 from okxspot.watchdog import PROTECTED_PID, Supervisor, monitor_heartbeat, monitor_loop
 from okxspot.runtime import (
     prepare_live,
@@ -58,6 +60,12 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
 
     rearm = sub.add_parser("rearm", help="manually re-arm a tripped kill switch")
     rearm.add_argument("--config", required=True)
+
+    ack = sub.add_parser(
+        "ack-fill-gap",
+        help="after a manual reconcile, record now as the last fill sync (then rearm)",
+    )
+    ack.add_argument("--config", required=True)
 
     demo = sub.add_parser(
         "demo-dry-run",
@@ -127,6 +135,15 @@ def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) ->
             ks = KillSwitch(settings.kill_switch_path)
             ks.rearm(operator="cli")
             print(f"kill switch rearmed path={settings.kill_switch_path}")
+            return 0
+        if args.cmd == "ack-fill-gap":
+            settings = load_settings(args.config)
+            store = StateStore(settings.state.sqlite_path)
+            try:
+                store.set_kv(FILL_SYNC_TS_KEY, datetime.now(UTC).isoformat())
+            finally:
+                store.close()
+            print("fill sync acknowledged; verify venue fills/balances, then run rearm")
             return 0
         if args.cmd == "demo-dry-run":
             load_settings(args.config)

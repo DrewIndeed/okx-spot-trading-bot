@@ -230,6 +230,58 @@ class StaleSettings(BaseModel):
 
 
 
+class GuardSettings(BaseModel):
+    """Live NO-GO guards: fill-window gap and exchange-vs-ledger position check."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # GET /api/v5/trade/fills covers 3 days; fills-history covers 3 months.
+    fill_window_hours: Decimal = Decimal("72")
+    fill_safety_margin_hours: Decimal = Decimal("1")
+    fill_history_backfill: bool = True
+    fill_history_window_hours: Decimal = Decimal("2160")
+    fill_history_margin_hours: Decimal = Decimal("24")
+    # Per-asset absolute tolerance (fees/dust) for base balances, e.g. {"BTC": "0.00001"}.
+    position_tolerance: dict[str, Decimal] = Field(default_factory=dict)
+    position_default_tolerance: Decimal = Decimal("0.000001")
+    # Quote is shortfall-only: USDT above the bot's own cash (e.g. non-bot funds) is never drift.
+    quote_shortfall_tolerance: Decimal = Decimal("1")
+    # Consecutive balance-read failures mid-run before the check fails closed.
+    position_check_max_failures: int = Field(default=3, ge=1)
+
+    @field_validator(
+        "fill_window_hours",
+        "fill_safety_margin_hours",
+        "fill_history_window_hours",
+        "fill_history_margin_hours",
+        "position_default_tolerance",
+        "quote_shortfall_tolerance",
+        mode="before",
+    )
+    @classmethod
+    def _parse(cls, value: object) -> Decimal:
+        return _dec(value)
+
+    @field_validator("position_tolerance", mode="before")
+    @classmethod
+    def _parse_tol(cls, value: object) -> dict[str, Decimal]:
+        if not isinstance(value, dict):
+            raise ValueError("position_tolerance must be a mapping")
+        return {str(k).upper(): _dec(v) for k, v in value.items()}
+
+    @model_validator(mode="after")
+    def _windows(self) -> GuardSettings:
+        if not Decimal("0") <= self.fill_safety_margin_hours < self.fill_window_hours:
+            raise ValueError("fill_safety_margin_hours must be in [0, fill_window_hours)")
+        if not Decimal("0") <= self.fill_history_margin_hours < self.fill_history_window_hours:
+            raise ValueError("fill_history_margin_hours must be in [0, fill_history_window_hours)")
+        if self.position_default_tolerance < 0 or self.quote_shortfall_tolerance < 0:
+            raise ValueError("tolerances must be >= 0")
+        if any(v < 0 for v in self.position_tolerance.values()):
+            raise ValueError("position_tolerance values must be >= 0")
+        return self
+
+
 class Settings(BaseModel):
 
     """Engine configuration.
@@ -268,6 +320,7 @@ class Settings(BaseModel):
     backtest: BacktestSettings = BacktestSettings()
     runtime: RuntimeSettings = RuntimeSettings()
     stale: StaleSettings = StaleSettings()
+    guards: GuardSettings = GuardSettings()
 
     @field_validator("allocated_capital", "max_allocated_capital", mode="before")
     @classmethod

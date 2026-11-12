@@ -52,24 +52,34 @@ class PortfolioBook:
         stop_price: Decimal | None,
         initial_risk_quote: Decimal | None,
     ) -> None:
-        cost = fill.qty * fill.price + fill.fee
+        base_ccy = fill.inst_id.split("-")[0].upper()
+        qty = fill.qty
+        if fill.fee_ccy.upper() == base_ccy and fill.fee:
+            # OKX spot buys charge the fee in the base coin: the wallet holds
+            # fillSz - fee, and the quote spent is fillSz * fillPx.
+            qty = fill.qty - fill.fee
+            cost = fill.qty * fill.price
+        else:
+            cost = fill.qty * fill.price + fill.fee
+        if qty <= 0:
+            raise StateError(f"buy fill {fill.trade_id} nets to non-positive qty")
         pos = self.positions.get(fill.inst_id)
         if pos is None:
-            avg = cost / fill.qty
+            avg = cost / qty
             if stop_price is not None and avg > stop_price:
-                risk = (avg - stop_price) * fill.qty
+                risk = (avg - stop_price) * qty
             else:
                 risk = initial_risk_quote if initial_risk_quote is not None else Decimal("0")
             self.positions[fill.inst_id] = Position(
                 inst_id=fill.inst_id,
-                qty=fill.qty,
+                qty=qty,
                 avg_price=avg,
                 stop_price=stop_price,
                 initial_risk_quote=risk,
                 opened_at=fill.ts,
             )
             return
-        new_qty = pos.qty + fill.qty
+        new_qty = pos.qty + qty
         pos.avg_price = (pos.avg_price * pos.qty + cost) / new_qty
         pos.qty = new_qty
         if stop_price is not None:

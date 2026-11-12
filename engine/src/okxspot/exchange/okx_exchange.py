@@ -11,6 +11,7 @@ from okxspot.exchange.okx_client import OkxClient
 from okxspot.exchange.okx_parse import (
     ensure_ok,
     parse_account_view,
+    parse_balances,
     parse_instrument,
     parse_okx_candle_row,
     parse_order_row,
@@ -65,6 +66,8 @@ class OkxExchange(Exchange):
         self._seen_trades: set[str] = set()
         self._fill_cursor: str | None = None
         self._pending_fill_cursor: str | None = None
+        # False when the last sync stopped at its page cap with records left.
+        self.last_sync_complete = True
         self._new: list[Fill] = []
         self._purposes: dict[str, OrderPurpose] = {}
 
@@ -360,7 +363,23 @@ class OkxExchange(Exchange):
         self._new.clear()
         return out
 
-    def sync(self) -> None:
+    def sync_history(self) -> None:
+        """Gap backfill: page /trade/fills-history (3 months) newer than the cursor."""
+        self.sync(_path="/api/v5/trade/fills-history")
+
+    def get_balances(self, ccys: list[str]) -> dict[str, Decimal]:
+        """Cash balance (available + frozen) per currency for the position check."""
+        payload = self.client.request(
+            "GET",
+            "/api/v5/account/balance",
+            params={"ccy": ",".join(ccys)},
+            auth=True,
+            idempotent=True,
+        )
+        ensure_ok(payload)
+        return parse_balances(payload, ccys)
+
+    def sync(self, *, _path: str = "/api/v5/trade/fills") -> None:
         # OKX v5 pagination (https://www.okx.com/docs-v5/trick_en/ and
         # GET /api/v5/trade/fills, /api/v5/trade/fills-history):
         #   before=<billId> → records *newer* than billId (closest to it,
@@ -370,13 +389,19 @@ class OkxExchange(Exchange):
         # syncs must use before= so new fills are not skipped. The in-memory
         # cursor only becomes committed after save_book (commit_fill_cursor).
         if self._fill_cursor:
-            pending = self._fetch_newer_fills(self._fill_cursor)
+            pending = self._fetch_newer_fills(self._fill_cursor, path=_path)
         else:
-            pending = self._backfill_fills()
+            pending = self._backfill_fills(path=_path)
         if pending:
             self._pending_fill_cursor = pending
 
-    def _fetch_fills_page(self, *, after: str | None = None, before: str | None = None) -> list[dict[str, Any]]:
+    def _fetch_fills_page(
+        self,
+        *,
+        after: str | None = None,
+        before: str | None = None,
+        path: str = "/api/v5/trade/fills",
+    ) -> list[dict[str, Any]]:
         params = {"instType": "SPOT", "limit": "100"}
         if after:
             params["after"] = after
@@ -384,7 +409,7 @@ class OkxExchange(Exchange):
             params["before"] = before
         payload = self.client.request(
             "GET",
-            "/api/v5/trade/fills",
+            path,
             params=params,
             auth=True,
             idempotent=True,
@@ -413,37 +438,43 @@ class OkxExchange(Exchange):
             fills.append(_fill_from_row(row))
         return newest, oldest, fills
 
-    def _fetch_newer_fills(self, cursor: str) -> str | None:
+    def _fetch_newer_fills(self, cursor: str, *, path: str = "/api/v5/trade/fills") -> str | None:
         before = cursor
         seen: set[str] = set()
         pending: str | None = None
         collected: list[tuple[Any, str, Fill]] = []
+        self.last_sync_complete = False
         for _page in range(20):
-            rows = self._fetch_fills_page(before=before)
+            rows = self._fetch_fills_page(before=before, path=path)
             if not rows:
+                self.last_sync_complete = True
                 break
             newest, _oldest, fills = self._ingest_page(rows)
             for fill in fills:
                 collected.append((fill.ts, fill.trade_id, fill))
             if not newest or newest in seen:
+                self.last_sync_complete = True
                 break
             seen.add(newest)
             pending = newest
             before = newest
             if len(rows) < 100:
+                self.last_sync_complete = True
                 break
         collected.sort(key=lambda item: (item[0], item[1]))
         self._new.extend(fill for _ts, _tid, fill in collected)
         return pending
 
-    def _backfill_fills(self) -> str | None:
+    def _backfill_fills(self, *, path: str = "/api/v5/trade/fills") -> str | None:
         after: str | None = None
         seen: set[str] = set()
         pending_newest: str | None = None
         collected: list[tuple[Any, str, Fill]] = []
+        self.last_sync_complete = False
         for _page in range(20):
-            rows = self._fetch_fills_page(after=after)
+            rows = self._fetch_fills_page(after=after, path=path)
             if not rows:
+                self.last_sync_complete = True
                 break
             newest, oldest, fills = self._ingest_page(rows)
             if pending_newest is None and newest:
@@ -451,6 +482,7 @@ class OkxExchange(Exchange):
             for fill in fills:
                 collected.append((fill.ts, fill.trade_id, fill))
             if not oldest or oldest in seen:
+                self.last_sync_complete = True
                 break
             seen.add(oldest)
             after = oldest

@@ -105,8 +105,8 @@ def metrics(eq, rets, trades, expo, turn, sr_list):
     pnls = [float(t["pnl_frac"]) for t in trades if t.get("pnl_frac") is not None and t.get("exit_date")]
     mc = monte_carlo_trade_order(pnls, C_PAPER)
     m["mc_p5_maxDD"] = (mc.get("maxDD") or {}).get("p5")
-    m["DSR_N16"] = dsr_for(r, sr_list, N_OFF).get("dsr")
-    m["DSR_N51"] = dsr_for(r, sr_list, N_CONS).get("dsr")
+    m["DSR_N16"] = dsr_for(r, sr_list, N_OFF).get("DSR")
+    m["DSR_N51"] = dsr_for(r, sr_list, N_CONS).get("DSR")
     return m
 
 
@@ -190,8 +190,36 @@ def phase_holdout():
     print(pd.DataFrame(rows)[["cost", "book", "CAGR", "Sharpe", "maxDD", "n_closed_trades", "DSR_N16"]].round(3).to_string())
 
 
+def phase_recompute():
+    """Deterministic re-run to add metrics only (DSR key fix). Asserts every stored holdout Sharpe/CAGR is
+    reproduced bit-for-bit; selection and candidate are not touched. Writes results.csv (tuning domain + WF folds + holdout)."""
+    ho = json.loads((ART / "holdout.json").read_text())
+    stored = {(r["book"], r["cost"]): r for r in json.loads((ART / "holdout_results.json").read_text())["rows"]}
+    s, e = pd.Timestamp(ho["holdout"]["start"]), pd.Timestamp(ho["holdout"]["end"])
+    ctx = setup()
+    names = COMPARATORS + list(V4)
+    rows = []
+    for win, (ws, we), costs in (("tuning_2021-07..2026-11", (TUNE_START, TUNE_END), ("2x",)), ("holdout_2018-11..2020-09", (s, e), ("2x", "1x"))):
+        for cl in costs:
+            raw = {n: run_book(n, ctx, ws, we, COSTS[cl]) for n in names}
+            sr_list = [daily_sharpe_raw(raw[n][1]) for n in names if n != "BENCH-50-50"]
+            for n in names:
+                m = metrics(*raw[n], sr_list)
+                if win.startswith("holdout"):
+                    old = stored[(n, cl)]
+                    assert abs(old["Sharpe"] - m["Sharpe"]) < 1e-12 and abs(old["CAGR"] - m["CAGR"]) < 1e-12, (n, cl)
+                rows.append({"window": win, "cost": cl, "book": n, **{k: m.get(k) for k in (
+                    "CAGR", "Sharpe", "Sortino", "maxDD", "n_closed_trades", "turnover_ann", "mean_exposure", "DSR_N16", "DSR_N51", "mc_p5_maxDD", "end_equity", "start", "end")}})
+                if win.startswith("tuning"):
+                    for fs, fe in FOLDS:
+                        rows.append({"window": f"wf_fold_{fs[:4]}", "cost": cl, "book": n, "Sharpe": sharpe(raw[n][1].loc[fs:fe])})
+    df = pd.DataFrame(rows)
+    df.to_csv(ART / "results.csv", index=False)
+    print(df[df.window.str.startswith("holdout")][["cost", "book", "Sharpe", "DSR_N16", "DSR_N51", "mc_p5_maxDD"]].round(3).to_string())
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("phase", choices=["wf", "holdout"])
+    ap.add_argument("phase", choices=["wf", "holdout", "recompute"])
     a = ap.parse_args()
-    phase_wf() if a.phase == "wf" else phase_holdout()
+    {"wf": phase_wf, "holdout": phase_holdout, "recompute": phase_recompute}[a.phase]()

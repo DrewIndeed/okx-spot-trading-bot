@@ -63,6 +63,13 @@ def setup():
     return panel, regime, U, crowd
 
 
+def book_pre(h, panel):
+    """Frozen precompute + BTC SMA200 so the v2/v3 kill switch can re-arm (flat 30d, then BTC > SMA200).
+    precompute_vc lacks it, so in v3 harnesses a killed H1/H4/H5 book could never re-arm."""
+    from tradingbot.universe import sma
+    return {**h.precompute(panel), "sma200_btc": sma(panel["close"]["BTC"], 200)}
+
+
 def run_book(name, ctx, start, end, cost):
     panel, regime, U, crowd = ctx
     if name == "V2-CORE":
@@ -76,7 +83,7 @@ def run_book(name, ctx, start, end, cost):
     else:
         hs = build_hypotheses(panel, regime=regime, crowd=crowd, pit_universe=U)
         h = hs["H5" if name.startswith("V4") else name]
-        pre = h.precompute(panel)
+        pre = book_pre(h, panel)
         syms = list(h.symbols) if h.symbols else list(panel["close"].columns)
         if name.startswith("V4"):
             tf = make_v4_target(h.target_fn, V4[name], panel)

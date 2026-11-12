@@ -320,6 +320,22 @@ def crowd_from_rest_or_off(
     return crowd, events
 
 
+def paper_pre(h, panel: dict) -> dict:
+    """Frozen precompute plus BTC SMA200 for the frozen kill re-arm rule.
+
+    Frozen rule: re-arm after 30 flat days AND BTC > SMA200. The frozen H1/H4/H5
+    precompute (precompute_vc) has no BTC SMA200, so the engine could never re-arm.
+    SMA200 uses closed 1Dutc closes up to and including each bar (no lookahead).
+    Plumbing only: no frozen file or param changes.
+    """
+    from tradingbot.universe import sma
+
+    pre = dict(h.precompute(panel))
+    close = panel["close"]
+    pre["sma200_btc"] = sma(close["BTC"], 200) if "BTC" in close.columns else pd.Series(dtype=float)
+    return pre
+
+
 def _last_closed_open(panel: dict) -> pd.Timestamp | None:
     idx = panel["close"].index
     return None if len(idx) == 0 else pd.Timestamp(idx[-1])
@@ -821,7 +837,7 @@ def run_v3_iteration(
     pres: dict[str, dict] = {}
     try:
         for hid in ("H5", "H1", "H4"):
-            pres[hid] = hyps[hid].precompute(panel)
+            pres[hid] = paper_pre(hyps[hid], panel)
     except Exception as e:
         errors.append(f"signal precompute failed: {e}")
 

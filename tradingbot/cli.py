@@ -32,7 +32,7 @@ from tradingbot.paperlog import (
 from tradingbot.portfolio import Portfolio
 from tradingbot.risk import RiskManager
 from tradingbot.strategy.d1_breakout import DISCLAIMER as D1_DISCLAIMER, D1BreakoutStrategy
-from tradingbot.strategy.my_d1 import DISCLAIMER as MY_D1_DISCLAIMER, MyD1Strategy
+from tradingbot.strategy.my_d1 import DEFAULT_LOOKBACK as MY_D1_LOOKBACK, DISCLAIMER as MY_D1_DISCLAIMER, MyD1Strategy
 from tradingbot.strategy.placeholder import PLACEHOLDER_DISCLAIMER, PlaceholderEmaAtrStrategy
 from tradingbot.types import OrderIntent
 from tradingbot.universe import inst_id, load_favorites, panel_from_candles
@@ -337,7 +337,7 @@ def run_paper_iteration(
     update: bool = True,
     bar: str | None = None,
     run_id: str | None = None,
-    lookback: int = 8,
+    lookback: int = MY_D1_LOOKBACK,
     breadth_min: float = 0.7,
     risk_pct: float = 0.03,
     max_weight: float = 0.05,
@@ -556,7 +556,7 @@ def run_paper_iteration(
         strat_name = plugin.name
         day = ready
         if float(last_w.sum()) <= 0:
-            book_note = "flat: no 20-day breakout open on the last closed daily bar."
+            book_note = f"flat: no {plugin.params.lookback}-day breakout open on the last closed daily bar."
         else:
             book_note = f"open names={int((last_w > 0).sum())} gross={float(last_w.sum()):.3f}"
     elif name in ("v2", "v2-core", "v2-official"):
@@ -673,7 +673,8 @@ def cmd_paper_once(cfg: Config, args) -> int:
         if positions:
             concl.append(f"Open positions: {', '.join(positions)}. Exit is a close under the stop, or BTC back under SMA200.")
         else:
-            concl.append("Flat. Cash is the position; entries need a daily close above a 20-day high.")
+            window = args.lookback if (args.strategy or "d1") == "my_d1" else 20  # locked d1 uses 20
+            concl.append(f"Flat. Cash is the position; entries need a daily close above a {window}-day high.")
         used = (equity - cash) / equity if equity > 0 else 0.0
         concl.append(f"Capital deployed: {used:.0%} of the paper sleeve ({px(equity)} USDT). Cash idle: {px(cash)}.")
         concl.append("Verdict: paper only. allocated_capital is a configured sleeve, not the OKX main balance.")
@@ -772,7 +773,7 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--days", type=int, default=None)
     bt.add_argument("--no-update", action="store_true")
     bt.add_argument("--strategies", default="placeholder,d1", help="Comma list, max 3: placeholder,placeholder_slow,d1,my_d1")
-    bt.add_argument("--lookback", type=int, default=8)
+    bt.add_argument("--lookback", type=int, default=MY_D1_LOOKBACK)
     bt.add_argument("--breadth-min", type=float, default=0.7)
     bt.add_argument("--risk-pct", type=float, default=0.03)
     bt.add_argument("--max-weight", type=float, default=0.05)
@@ -782,7 +783,7 @@ def build_parser() -> argparse.ArgumentParser:
     po.add_argument("--strategy", default="d1", choices=["d1", "placeholder", "placeholder_slow", "my_d1"])
     po.add_argument("--bar", default=None)
     po.add_argument("--no-update", action="store_true")
-    po.add_argument("--lookback", type=int, default=8)
+    po.add_argument("--lookback", type=int, default=MY_D1_LOOKBACK)
     po.add_argument("--breadth-min", type=float, default=0.7)
     po.add_argument("--risk-pct", type=float, default=0.03)
     po.add_argument("--max-weight", type=float, default=0.05)
@@ -811,11 +812,13 @@ def build_parser() -> argparse.ArgumentParser:
     sm = sub.add_parser("summary", help="Fast live watchlist tables. No orders.")
     sm.add_argument("--top", type=int, default=8)
     sm.add_argument("--symbol", default=None, help="One coin, e.g. HYPE")
+    sm.add_argument("--lookback", type=int, default=MY_D1_LOOKBACK, help="my_d1 breakout window (days)")
     sig = sub.add_parser("signals", help="Side feature: paper levels. No orders. No strategy take-profit.")
     sig.add_argument("--symbol", default=None, help="One coin, e.g. HYPE")
     sig.add_argument("--top", type=int, default=10)
     sig.add_argument("--days", type=int, default=800)
     sig.add_argument("--no-update", action="store_true", help="Cache only. Default pulls OKX public REST first.")
+    sig.add_argument("--lookback", type=int, default=MY_D1_LOOKBACK, help="my_d1 breakout window (days)")
     nt = sub.add_parser("notify-test", help="Send one Telegram test message")
     tg = sub.add_parser("tg-bot", help="Telegram command bot (long polling; needs TELEGRAM_BOT_TOKEN)")
     ws = sub.add_parser("ws-smoke", help="Short public WS connect (candles/tickers)")
@@ -917,7 +920,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_data_sync(cfg, args)
     if args.cmd == "summary":
         from tradingbot.summary_view import print_summary
-        return print_summary(cfg, top=args.top, symbol=args.symbol)
+        return print_summary(cfg, top=args.top, symbol=args.symbol, lookback=args.lookback)
     if args.cmd == "signals":
         from tradingbot.side_signals import print_signals
         return print_signals(
@@ -926,6 +929,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             top=args.top,
             days=args.days,
             update=not args.no_update,
+            lookback=args.lookback,
         )
     if args.cmd == "ws-smoke":
         return cmd_ws_smoke(cfg, args)

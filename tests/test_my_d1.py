@@ -87,3 +87,38 @@ def test_kill_switch_trips_at_max_drawdown_not_before(tmp_path):
     book.day_start_equity = 6_990.0
     dec = rm.evaluate(_sig(2), book, 100.0, marks={})
     assert not dec.allowed and dec.reason == "kill_switch_max_drawdown" and book.halted
+
+
+def test_user_facing_window_label_follows_lookback(tmp_path, monkeypatch, capsys):
+    from tests._botkit import REPO
+    from tradingbot import side_signals, summary_view
+    from tradingbot.data.rest import OkxRestFeed
+    from tradingbot.strategy.my_d1 import DEFAULT_LOOKBACK
+
+    assert DEFAULT_LOOKBACK == 8  # Andrew's tuned value
+    assert cli.build_parser().parse_args(["paper-once", "--strategy", "my_d1"]).lookback == DEFAULT_LOOKBACK
+    assert cli.build_parser().parse_args(["summary"]).lookback == DEFAULT_LOOKBACK
+    assert cli.build_parser().parse_args(["signals"]).lookback == DEFAULT_LOOKBACK
+
+    cfg = make_cfg(tmp_path)
+    monkeypatch.setattr(cli, "_feed", lambda _cfg: StubFeed())
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    for n in (8, 12):
+        _rc, s = cli.run_paper_iteration(cfg, strategy="my_d1", update=False, lookback=n)
+        if "breakout open" in s["message"]:
+            assert f"{n}-day" in s["message"] and "20-day" not in s["message"]
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(side_signals, "_feed", lambda _cfg: StubFeed())
+    for n in (8, 12):
+        assert side_signals.print_signals(cfg, update=False, days=400, lookback=n, symbol="BTC") in (0, 1)
+        out = capsys.readouterr().out
+        assert "20-day" not in out
+
+    for b in ("BTC", "ETH", "SOL"):
+        save_candles(cfg.data.cache_dir, f"{b}-USDT", "1Dutc", series(b), backend="parquet")
+    monkeypatch.setattr(OkxRestFeed, "get_spot_tickers", lambda self: {})
+    for n in (8, 12):
+        assert summary_view.print_summary(cfg, top=3, lookback=n) == 0
+        out = capsys.readouterr().out
+        assert f"under the {n}-day high" in out and "20-day" not in out

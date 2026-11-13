@@ -1,7 +1,7 @@
 """Fast live summary. One OKX ticker call plus cached daily closes.
 
 Watchlist only. It does not run the slow breakout book, and it does not place orders.
-A live price above the prior 20-day high is not a buy until that daily bar closes.
+A live price above the prior my_d1-lookback high is not a buy until that daily bar closes.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import pandas as pd
 from tradingbot.config import Config
 from tradingbot.data.rest import OkxRestFeed
 from tradingbot.termfmt import bullets, kv, pct, px, table, title
+from tradingbot.strategy.my_d1 import DEFAULT_LOOKBACK
 from tradingbot.universe import base_sym, inst_id, load_favorites
 
 
@@ -43,7 +44,8 @@ def _bars(cache_dir: Path, base: str) -> pd.DataFrame | None:
     return out[~out.index.duplicated(keep="last")]
 
 
-def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None) -> int:
+def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None, lookback: int = DEFAULT_LOOKBACK) -> int:
+    n = int(lookback)
     feed = OkxRestFeed(
         cache_dir=cfg.data.cache_dir,
         rest_base=cfg.data.rest_base,
@@ -56,7 +58,7 @@ def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None) -> in
     missing = 0
     for base in bases:
         frame = _bars(Path(cfg.data.cache_dir), base)
-        if frame is None or len(frame) < 21:
+        if frame is None or len(frame) < n + 1:
             missing += 1
             continue
         frames[base_sym(base)] = frame
@@ -101,8 +103,8 @@ def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None) -> in
         ("Buys", "none until a daily close confirms"),
     ]))
 
-    prev_high = close_panel.shift(1).rolling(20, min_periods=20).max().iloc[-1]
-    channel_mid = ((close_panel.rolling(20, min_periods=20).max() + close_panel.rolling(20, min_periods=20).min()) / 2).iloc[-1]
+    prev_high = close_panel.shift(1).rolling(n, min_periods=n).max().iloc[-1]
+    channel_mid = ((close_panel.rolling(n, min_periods=n).max() + close_panel.rolling(n, min_periods=n).min()) / 2).iloc[-1]
     rows = []
     for coin in close_panel.columns:
         tick = tickers.get(inst_id(coin))
@@ -124,7 +126,7 @@ def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None) -> in
         sl = "yes" if mid < live else "no"
         under_rows.append([coin, px(live), px(level), pct(gap), sl])
     print(title(
-        "Closest eligible, still under the 20-day high",
+        f"Closest eligible, still under the {n}-day high",
         "top-20 by 30d quote volume, history >= 200d, median vol >= $2M",
     ))
     print(table(
@@ -152,7 +154,7 @@ def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None) -> in
             ("Strategy buy", "no, until a daily close confirms"),
         ]
         if mid >= live:
-            pairs.append(("Stop", f"none. 20-day mid {px(mid)} is above the live price"))
+            pairs.append(("Stop", f"none. {n}-day mid {px(mid)} is above the live price"))
         else:
             pairs.append(("Hypothetical SL", px(mid)))
             pairs.append(("Hypothetical TP 2R", px(live + 2 * (live - mid))))
@@ -166,7 +168,7 @@ def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None) -> in
     elif not breadth_ok:
         concl.append(f"BTC trend gate is ON, but only {breadth:.0%} of the liquidity top-20 is above its SMA50 (needs 50%). Weak market: no new entries.")
     else:
-        concl.append("BTC gate ON and breadth OK. New breakouts are allowed, but each still needs a daily close above its 20-day high.")
+        concl.append(f"BTC gate ON and breadth OK. New breakouts are allowed, but each still needs a daily close above its {n}-day high.")
     if under:
         _r, g, coin, _live, level_u, _mid, _ok = under[0]
         concl.append(f"Closest setup: {coin}, {pct(g)} below its breakout level ({px(level_u)}).")

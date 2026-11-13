@@ -11,7 +11,7 @@ from pathlib import Path
 
 from tradingbot.cli import _feed, _load_d1_panel
 from tradingbot.config import Config
-from tradingbot.strategy.my_d1 import MyD1Strategy
+from tradingbot.strategy.my_d1 import DEFAULT_LOOKBACK, MyD1Strategy
 from tradingbot.termfmt import bullets, kv, pct, px, table, title
 from tradingbot.universe import inst_id, panel_from_candles
 
@@ -23,6 +23,7 @@ def print_signals(
     top: int = 10,
     days: int = 800,
     update: bool = True,
+    lookback: int = DEFAULT_LOOKBACK,
 ) -> int:
     feed = _feed(cfg)
     source = "OKX public REST candles + live tickers" if update else "cached candles + live OKX tickers"
@@ -32,7 +33,7 @@ def print_signals(
     C, HI, LO, VQ, _O = panel_from_candles(by)
     plugin = MyD1Strategy(
         cfg.allocated_capital,
-        lookback=8,
+        lookback=lookback,
         breadth_min=0.7,
         risk_pct=0.03,
         max_weight=0.05,
@@ -75,8 +76,9 @@ def print_signals(
         print(title("In book"))
         print(table(["Coin", "Weight", "Entry", "SL", "TP 2R", "Last"], book_rows, right={1, 2, 3, 4, 5}))
 
-    prev_high = C.shift(1).rolling(20).max()
-    mid = (C.rolling(20).max() + C.rolling(20).min()) / 2.0
+    n = plugin.params.lookback
+    prev_high = C.shift(1).rolling(n).max()
+    mid = (C.rolling(n).max() + C.rolling(n).min()) / 2.0
     close = C.iloc[-1]
     level = prev_high.iloc[-1]
     live_px = {}
@@ -151,7 +153,7 @@ def print_signals(
             else:
                 one.append(("Why", "level met, but top-20, breadth, or stop filter failed"))
             if stop_now >= px_close:
-                one.append(("Stop", f"none. 20-day mid {px(stop_now)} is above the close"))
+                one.append(("Stop", f"none. {n}-day mid {px(stop_now)} is above the close"))
             else:
                 one.append(("Hypothetical SL", px(stop_now)))
                 one.append(("Hypothetical TP 2R", px(px_close + 2.0 * (px_close - stop_now))))
@@ -164,7 +166,7 @@ def print_signals(
     if not gate_on:
         concl.append("BTC under SMA200. Gate OFF. Strategy is flat or exiting; cash is the position.")
     elif float(last.sum()) <= 0:
-        concl.append("Gate ON but no breakout open. The bot only buys a daily close above a 20-day high.")
+        concl.append(f"Gate ON but no breakout open. The bot only buys a daily close above a {n}-day high.")
     else:
         concl.append(f"Gate ON. Book holds {len(held)} breakout(s), gross {float(last.sum()):.2f}x of the 50%-capped sleeve.")
     if nearest:

@@ -11,6 +11,10 @@ from okxspot.decimals import parse_decimal
 from okxspot.models import assert_spot_symbol
 
 
+# Live must carry its own drawdown cap; a wider paper kill switch never carries over.
+LIVE_MAX_DRAWDOWN_PCT = Decimal("0.15")
+
+
 def _dec(value: object) -> Decimal:
     return parse_decimal(value)
 
@@ -301,6 +305,15 @@ class Settings(BaseModel):
             return None
         text_value = str(value).strip()
         return text_value or None
+
+    @model_validator(mode="after")
+    def _live_drawdown_cap(self) -> Settings:
+        if (self.mode == "live" or self.live_enabled) and self.risk.max_drawdown_pct > LIVE_MAX_DRAWDOWN_PCT:
+            raise ValueError(
+                f"live config needs max_drawdown_pct <= {LIVE_MAX_DRAWDOWN_PCT}; "
+                f"got {self.risk.max_drawdown_pct}"
+            )
+        return self
 
     @field_validator("quote_ccy")
     @classmethod

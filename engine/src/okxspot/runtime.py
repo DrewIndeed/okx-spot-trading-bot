@@ -13,6 +13,7 @@ from okxspot.atomic import write_text_atomic
 from okxspot.backtest.report import write_backtest_report
 from okxspot.backtest.session import SessionResult, build_strategy, run_session
 from okxspot.config import Settings
+from okxspot.config import LIVE_MAX_DRAWDOWN_PCT
 from okxspot.errors import LiveGuardError
 from okxspot.killswitch import KillSwitch
 from okxspot.demo_data import synthetic_market
@@ -152,6 +153,11 @@ def prepare_live(settings: Settings, *, enable_live_flag: bool, env: Mapping[str
     """Run every live gate before any order can be built."""
     if settings.mode != "live":
         raise LiveGuardError("live mode requires settings.mode == 'live'")
+    if settings.risk.max_drawdown_pct > LIVE_MAX_DRAWDOWN_PCT:
+        raise LiveGuardError(
+            f"live mode requires risk.max_drawdown_pct <= {LIVE_MAX_DRAWDOWN_PCT}; "
+            f"got {settings.risk.max_drawdown_pct}"
+        )
     require_supervisor(env)
     assert_live_strategy(settings)
     if not settings.required_uid or not settings.required_account_label:

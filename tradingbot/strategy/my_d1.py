@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 from tradingbot.regime import btc_above_sma200
+from tradingbot.strategies.spec_v1_common import WEDDING_FUNDS_USDT
 from tradingbot.types import Signal
 from tradingbot.universe import (
     B_SLOTS,
@@ -126,6 +127,10 @@ class MyD1Strategy:
         if allocated_capital is None or allocated_capital <= 0:
             raise InvalidParameterError(
                 "MyD1 requires allocated_capital > 0; never sizes from OKX account balance"
+            )
+        if abs(float(allocated_capital) - WEDDING_FUNDS_USDT) < 1e-9:
+            raise InvalidParameterError(
+                "allocated_capital equals the excluded 6,788 USDT wedding funds; refuse"
             )
         if exit_mode not in ("mid", "low"):
             raise InvalidParameterError(f"exit_mode must be 'mid' or 'low', got {exit_mode!r}")

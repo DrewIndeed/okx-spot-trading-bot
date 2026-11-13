@@ -30,6 +30,53 @@ V3_OFFICIAL_RUN_ID = "spec_v3_official"
 V2_OFFICIAL_RUN_ID = "spec_v2_official"
 
 
+BOT_SCOPE_STRATEGY = "my_d1"
+_PROTECTED_CMD_MARKERS = ("spec_v2", "spec_v3", "spec_v4", "--strategies v2", "--strategies v3", "v4_paper")
+
+
+class ProtectedRunError(RuntimeError):
+    """Raised when a bot-scoped command would touch an official/frozen run."""
+
+
+def _pid_cmdline(pid: int) -> str:
+    path = Path(f"/proc/{pid}/cmdline")
+    try:
+        return path.read_bytes().replace(b"\x00", b" ").decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+
+
+def assert_bot_scope(
+    cfg: Optional[Config] = None,
+    *,
+    run_id: Optional[str] = None,
+    strategies: Optional[str] = None,
+    cwd: Optional[str | Path] = None,
+) -> Path:
+    """Guard for Telegram/bot loop control: only the default my_d1 pidfile may be touched.
+
+    Refuses any run id (spec_v2_official etc.), any strategy other than my_d1, any
+    working dir or state dir holding a RUNNING.lock, and a pidfile whose live pid is an
+    official run. Returns the my_d1 pidfile path when allowed.
+    """
+    if run_id:
+        raise ProtectedRunError(f"bot scope refuses run id {run_id!r}; only the default my_d1 book is allowed")
+    if strategies is not None and str(strategies).strip().lower() != BOT_SCOPE_STRATEGY:
+        raise ProtectedRunError(f"bot scope only runs {BOT_SCOPE_STRATEGY}, not {strategies!r}")
+    here = Path(cwd or os.getcwd()).resolve()
+    pf = pidfile_path(cfg)
+    pf_abs = pf if pf.is_absolute() else here / pf
+    for d in {here, pf_abs.parent.resolve(), pf_abs.parent.parent.resolve()}:
+        if (d / "RUNNING.lock").exists():
+            raise ProtectedRunError(f"bot scope refuses {d}: RUNNING.lock present (official long run)")
+    pid = read_pid(pf_abs)
+    if pid is not None and pid_is_alive(pid):
+        cmd = _pid_cmdline(pid)
+        if any(m in cmd for m in _PROTECTED_CMD_MARKERS):
+            raise ProtectedRunError(f"bot scope refuses pid {pid}: it is an official run")
+    return pf_abs
+
+
 def is_v3_run(run_id: Optional[str] = None, strategies: Optional[str] = None) -> bool:
     if run_id and (run_id == V3_OFFICIAL_RUN_ID or str(run_id).startswith("spec_v3")):
         return True

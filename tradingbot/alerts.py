@@ -23,6 +23,7 @@ def _post(token: str, chat_id: str, text: str) -> bool:
         with urllib.request.urlopen(req, timeout=10) as resp:
             ok = 200 <= getattr(resp, "status", 200) < 300
     except Exception:
+        # Never surface the exception: urllib errors can carry the request URL (with token).
         return False
     return ok
 

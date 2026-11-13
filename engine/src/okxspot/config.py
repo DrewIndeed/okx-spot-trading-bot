@@ -11,6 +11,9 @@ from okxspot.decimals import parse_decimal
 from okxspot.models import assert_spot_symbol
 
 
+LIVE_MAX_DRAWDOWN_PCT = Decimal("0.15")
+
+
 def _dec(value: object) -> Decimal:
     return parse_decimal(value)
 
@@ -232,6 +235,16 @@ class Settings(BaseModel):
     def _regime(cls, value: str) -> str:
         assert_spot_symbol(value)
         return value
+
+    @model_validator(mode="after")
+    def _live_drawdown_cap(self) -> Settings:
+        # A paper kill switch above 15% must never carry over to a live config.
+        if self.mode == "live" and self.risk.max_drawdown_pct > LIVE_MAX_DRAWDOWN_PCT:
+            raise ValueError(
+                f"live mode needs its own max_drawdown_pct <= {LIVE_MAX_DRAWDOWN_PCT}; "
+                f"got {self.risk.max_drawdown_pct}"
+            )
+        return self
 
     @field_validator("quote_ccy")
     @classmethod

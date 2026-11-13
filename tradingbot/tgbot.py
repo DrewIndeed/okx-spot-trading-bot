@@ -35,19 +35,31 @@ LONG_TIMEOUT = 900  # seconds for sync/backtest/once/startloop
 
 # name -> (cli args, is_long, description)
 COMMANDS: dict[str, tuple[list[str], bool, str]] = {
-    "status":    (["paper-status"], False, "is the paper loop running?"),
+    "status":    (["paper-status", "--scope", "my_d1"], False, "is the paper loop running?"),
     "summary":   (["summary", "--top", "8"], False, "live market + gate summary"),
     "signals":   (["signals", "--no-update", "--top", "5"], False, "closest breakout setups (cache)"),
     "notify":    (["notify-test"], False, "send a Telegram test message"),
-    "stoploop":  (["paper-stop"], False, "stop the background paper loop"),
+    "stoploop":  (["paper-stop", "--scope", "my_d1"], False, "stop the background paper loop"),
     "help":      ([], False, "list commands"),
     "sync":      (["data-sync", "--bars", "1Dutc"], True, "refresh OKX daily cache (~2-4 min)"),
     "backtest":  (["backtest", "--no-update", "--strategies", "my_d1", "--bar", "1Dutc", "--days", "400"], True, "run my_d1 backtest (~1 min)"),
     "once":      (["paper-once", "--strategy", "my_d1"], True, "one paper iteration now"),
-    "startloop": (["paper-start", "--strategies", "my_d1", "--poll", "3600"], True, "start background paper loop"),
+    "startloop": (["paper-start", "--strategies", "my_d1", "--poll", "3600", "--scope", "my_d1"], True, "start background paper loop"),
 }
 
 MENU = "\n".join(f"/{n} - {d}" for n, (_a, _l, d) in COMMANDS.items())
+
+
+def _redact(text: object, token: str | None) -> str:
+    """Strip the bot token from any text before it is printed or sent."""
+    out = str(text)
+    if token and len(token) >= 8:  # real bot tokens are ~46 chars
+        out = out.replace(token, "***")
+    return out
+
+
+def _log(msg: object, token: str | None) -> None:
+    print(_redact(msg, token), flush=True)
 
 
 def _api(token: str, method: str, payload: Optional[dict] = None, timeout: int = 35):
@@ -119,7 +131,7 @@ def _handle(token: str, chat: str, text: str, lock: threading.Lock) -> None:
               "\n\nPaper / dry-run only. No OKX keys. No live orders.")
         return
     if not is_long:
-        _send(token, chat, _safe_cli(args, QUICK_TIMEOUT))
+        _send(token, chat, _redact(_safe_cli(args, QUICK_TIMEOUT), token))
         return
     # long commands: one at a time, announce then report
     if not lock.acquire(blocking=False):
@@ -133,9 +145,9 @@ def _handle(token: str, chat: str, text: str, lock: threading.Lock) -> None:
 
     def job() -> None:
         try:
-            _send(token, chat, _safe_cli(args, LONG_TIMEOUT))
+            _send(token, chat, _redact(_safe_cli(args, LONG_TIMEOUT), token))
         except Exception as e:
-            print(f"/{name} reply failed: {e}", flush=True)
+            _log(f"/{name} reply failed: {e}", token)
         finally:
             lock.release()
 
@@ -152,9 +164,13 @@ def run_tg_bot() -> int:
         print("TELEGRAM_CHAT_ID missing. The bot refuses to answer unknown chats.")
         return 2
 
-    me = _api(token, "getMe", timeout=15)
+    try:
+        me = _api(token, "getMe", timeout=15)
+    except Exception as e:
+        _log(f"Telegram getMe failed: {e}", token)
+        return 2
     if not me.get("ok"):
-        print(f"Telegram getMe failed: {me}")
+        _log(f"Telegram getMe failed: {me}", token)
         return 2
     print(f"tg-bot up as @{me['result']['username']}. Allowed chats: {sorted(allowed)}")
     try:
@@ -166,7 +182,7 @@ def run_tg_bot() -> int:
         }, timeout=15)
         print("command menu registered with Telegram")
     except Exception as e:
-        print(f"setMyCommands failed (non-fatal): {e}")
+        _log(f"setMyCommands failed (non-fatal): {e}", token)
 
     lock = threading.Lock()
     offset = 0
@@ -191,12 +207,12 @@ def run_tg_bot() -> int:
                     _handle(token, chat_id, text, lock)
                 except Exception as e:
                     # one bad message must not drop the rest of the batch
-                    print(f"tg-bot message error: {e}", flush=True)
+                    _log(f"tg-bot message error: {e}", token)
         except KeyboardInterrupt:
             print("tg-bot stopped")
             return 0
         except Exception as e:
-            print(f"tg-bot loop error: {e}; retry in 10s", flush=True)
+            _log(f"tg-bot loop error: {e}; retry in 10s", token)
             time.sleep(10)
 
 

@@ -323,6 +323,9 @@ def load_config(path: Optional[str] = None) -> Config:
     return cfg
 
 
+LIVE_MAX_DRAWDOWN_CAP = 0.15
+
+
 def ensure_safe_mode(cfg: Config, live_flag: bool = False) -> None:
     """Refuse live trading always.
 
@@ -330,6 +333,14 @@ def ensure_safe_mode(cfg: Config, live_flag: bool = False) -> None:
     Even when all three are present, live is not implemented and we still refuse.
     """
     wants_live = (cfg.mode == "live") or live_flag
+    if wants_live:
+        # The 0.30 paper kill switch must never carry over to live (Cypheous, 2026-11-13).
+        dd = float(cfg.risk.max_drawdown)
+        if dd > LIVE_MAX_DRAWDOWN_CAP:
+            raise LiveTradingRefused(
+                f"Live needs its own max_drawdown <= {LIVE_MAX_DRAWDOWN_CAP:.2f}; "
+                f"this config has {dd:.2f} (paper-only value). Refusing."
+            )
     if not wants_live:
         if cfg.mode not in ("dry_run", "paper"):
             raise LiveTradingRefused(f"Unknown mode {cfg.mode!r}. Allowed: dry_run, paper.")

@@ -576,6 +576,17 @@ def run_paper_iteration(
     book.save(cfg.state_path)
     cap = cfg.allocated_capital
     eq = book.equity(marks)
+    dd_now, dd_events = 0.0, []
+    if name == "my_d1":
+        from tradingbot.dd_watch import check_breaches, describe
+
+        dd_now, dd_events = check_breaches(eq, max(book.equity_peak, eq), day=day, state_path=cfg.state_path)
+        for ev in dd_events:
+            log.warning("drawdown_breach", strategy=name, **{("breach_level" if k == "level" else k): v for k, v in ev.items()})
+        dd_text = describe(dd_events)
+        if dd_text:
+            book_note = (book_note + "  " if book_note else "") + dd_text
+            send_alert(f"paper-once {name}: {dd_text}", logger=log)
     write_init_if_needed(
         cfg.paper_log_path,
         make_init(
@@ -620,6 +631,8 @@ def run_paper_iteration(
         "paper_log_path": cfg.paper_log_path,
         "allocated_capital": cap,
         "ready": day,
+        "drawdown": dd_now,
+        "drawdown_breaches": dd_events,
     }
     return 0, summary
 
@@ -778,10 +791,13 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("--strategies", default="d1", help="Comma list, or 'v2' / 'v3' for official paper clocks")
     ps.add_argument("--poll", type=int, default=60, help="Seconds between polls (default 60)")
     ps.add_argument("--run-id", default=None, help="Paper run id (spec_v3_official or spec_v2_official)")
+    ps.add_argument("--scope", choices=["my_d1"], default=None, help=argparse.SUPPRESS)  # Telegram/bot guard
     pstop = sub.add_parser("paper-stop", help="Stop the background paper loop")
     pstop.add_argument("--run-id", default=None)
+    pstop.add_argument("--scope", choices=["my_d1"], default=None, help=argparse.SUPPRESS)  # Telegram/bot guard
     pstat = sub.add_parser("paper-status", help="Show paper loop status")
     pstat.add_argument("--run-id", default=None)
+    pstat.add_argument("--scope", choices=["my_d1"], default=None, help=argparse.SUPPRESS)  # Telegram/bot guard
     ploop = sub.add_parser("paper-loop", help=argparse.SUPPRESS)  # foreground loop, used by paper-start
     ploop.add_argument("--strategies", default="d1")
     ploop.add_argument("--poll", type=int, default=60)
@@ -839,6 +855,17 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_backtest(cfg, args)
     if args.cmd == "paper-once":
         return cmd_paper_once(cfg, args)
+    if args.cmd in ("paper-start", "paper-stop", "paper-status") and getattr(args, "scope", None):
+        from tradingbot.paper_runner import ProtectedRunError, assert_bot_scope
+        try:
+            assert_bot_scope(
+                cfg,
+                run_id=getattr(args, "run_id", None),
+                strategies=getattr(args, "strategies", None),
+            )
+        except ProtectedRunError as e:
+            print(f"REFUSED: {e}")
+            return 3
     if args.cmd == "paper-start":
         from tradingbot.strategies.spec_v2_common import OFFICIAL_RUN_ID
         from tradingbot.eval.v3_paper import OFFICIAL_RUN_ID as V3_RUN_ID

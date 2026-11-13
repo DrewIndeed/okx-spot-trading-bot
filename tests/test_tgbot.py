@@ -51,7 +51,7 @@ def test_bot_suffix_and_case_are_stripped(monkeypatch, sent):
     calls = []
     monkeypatch.setattr(tgbot, "_safe_cli", lambda args, timeout: calls.append(args) or "ok")
     tgbot._handle("t", "1", "/STATUS@MyBot", threading.Lock())
-    assert calls == [["paper-status"]] and sent[-1][1] == "ok"
+    assert calls == [["paper-status", "--scope", "my_d1"]] and sent[-1][1] == "ok"
 
 
 def test_quick_command_timeout_becomes_message(monkeypatch, sent):

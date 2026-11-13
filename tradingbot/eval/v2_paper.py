@@ -62,6 +62,40 @@ def _last_closed_open(panel: dict) -> pd.Timestamp | None:
     return None if len(idx) == 0 else pd.Timestamp(idx[-1])
 
 
+def _write_1dutc_json_sidecar(feed, inst: str) -> Path | None:
+    """Mirror the refreshed 1Dutc cache into the legacy <INST>_1Dutc.json read by load_panel().
+
+    Deviation D1 (docs/spec_v2_deviations.md): get_candles() persists parquet only, while the
+    frozen loader (eval/load.py, in the v1 hash set) reads only *_1Dutc.json. Without this
+    sidecar the JSON caches froze at the last manual reload and T0 init failed with a KeyError
+    on the fill-date open. Rows keep the confirm flag; load_closed_1dutc() still keeps only
+    confirm==1. Existing JSON rows are merged (new data wins per ts) so history never shrinks.
+    The write is atomic. Data plumbing only: no signal, sizing or parameter change.
+    """
+    import os
+
+    from tradingbot.eval import load as L
+
+    candles = feed.load_cached(inst, "1Dutc")
+    if not candles:
+        return None
+    path = Path(L.TB_CACHE) / f"{inst}_1Dutc.json"
+    rows: dict[int, list] = {}
+    if path.exists():
+        try:
+            for r in json.loads(path.read_text()):
+                rows[int(r[0])] = list(r)
+        except (OSError, ValueError, TypeError, IndexError):
+            rows = {}
+    for c in candles:
+        rows[int(c.ts)] = c.as_row()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps([rows[k] for k in sorted(rows)]))
+    os.replace(tmp, path)
+    return path
+
+
 def _section7(
     *,
     run_id: str,
@@ -357,6 +391,7 @@ def run_v2_iteration(
             feed = _feed(cfg)
             for inst in ("BTC-USDT", "ETH-USDT"):
                 feed.get_candles(inst, "1Dutc", days=400, update=True, closed_only=True)
+                _write_1dutc_json_sidecar(feed, inst)
         panel = load_panel()
     except Exception as e:
         errors.append(f"data load/REST failed: {e}")
@@ -428,6 +463,7 @@ def run_v2_iteration(
             if need_full:
                 for base in load_favorites():
                     feed.get_candles(inst_id(base), "1Dutc", days=400, update=True, closed_only=True)
+                    _write_1dutc_json_sidecar(feed, inst_id(base))
                 panel = load_panel()
                 regime = build_regime(panel)
     except Exception as e:

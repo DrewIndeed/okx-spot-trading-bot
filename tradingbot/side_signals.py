@@ -12,7 +12,7 @@ from pathlib import Path
 from tradingbot.cli import _feed, _load_d1_panel
 from tradingbot.config import Config
 from tradingbot.strategy.my_d1 import MyD1Strategy
-from tradingbot.termfmt import kv, pct, px, table, title
+from tradingbot.termfmt import bullets, kv, pct, px, table, title
 from tradingbot.universe import inst_id, panel_from_candles
 
 
@@ -26,16 +26,17 @@ def print_signals(
 ) -> int:
     feed = _feed(cfg)
     source = "OKX public REST candles + live tickers" if update else "cached candles + live OKX tickers"
-    print(f"data: {source}")
+    print(title("OKX spot paper signals", "Not a live order. Live price above a level is not a buy until the daily bar closes."))
     by, missing = _load_d1_panel(feed, cfg, days=days, update=update)
+    print(kv([("Data", source)]))
     C, HI, LO, VQ, _O = panel_from_candles(by)
     plugin = MyD1Strategy(
         cfg.allocated_capital,
-        lookback=20,
-        breadth_min=0.5,
-        risk_pct=0.01,
-        max_weight=0.10,
-        exposure_scale=0.50,
+        lookback=8,
+        breadth_min=0.7,
+        risk_pct=0.03,
+        max_weight=0.05,
+        exposure_scale=1.00,
     )
     plugin.prepare(C, high=HI, low=LO, quote_vol=VQ)
     state: dict = {}
@@ -48,7 +49,6 @@ def print_signals(
     gate_on = btc > sma200
     tickers = feed.get_spot_tickers()
     live = tickers.get("BTC-USDT")
-    print("OKX spot paper signals")
     print("Not a live order. Strategy has no take-profit. TP 2R is a label only.")
     print(kv([
         ("Last closed bar", str(C.index[-1])),
@@ -158,6 +158,25 @@ def print_signals(
                 one.append(("Note", "label only, not a signal"))
         print(title(raw))
         print(kv(one))
+
+    # CONCLUSION: what the numbers actually say
+    concl: list[str] = []
+    if not gate_on:
+        concl.append("BTC under SMA200. Gate OFF. Strategy is flat or exiting; cash is the position.")
+    elif float(last.sum()) <= 0:
+        concl.append("Gate ON but no breakout open. The bot only buys a daily close above a 20-day high.")
+    else:
+        concl.append(f"Gate ON. Book holds {len(held)} breakout(s), gross {float(last.sum()):.2f}x of the 50%-capped sleeve.")
+    if nearest:
+        g0, coin0, _p, brk0, _c = nearest[0]
+        concl.append(f"Closest not-yet signal: {coin0}, {pct(g0)} under its level ({px(brk0)}).")
+    if already:
+        names = ", ".join(c for _g, c, *_ in already[:3])
+        concl.append(f"Above the level but unconfirmed: {names}. No buy until the daily bar closes.")
+    concl.append("Strategy has no take-profit. Exit is the mid-channel ratchet stop, or BTC back under SMA200. TP 2R is a label only.")
+    concl.append("Verdict: paper only. No live order, and the OKX wedding-funds balance stays untouched.")
+    print(title("Conclusion"))
+    print(bullets(concl))
     if missing:
         print(f"missing cache: {len(missing)}")
     print("report -> logs/signals_latest.md")

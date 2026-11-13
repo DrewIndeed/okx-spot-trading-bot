@@ -13,7 +13,7 @@ import pandas as pd
 
 from tradingbot.config import Config
 from tradingbot.data.rest import OkxRestFeed
-from tradingbot.termfmt import kv, pct, px, table, title
+from tradingbot.termfmt import bullets, kv, pct, px, table, title
 from tradingbot.universe import base_sym, inst_id, load_favorites
 
 
@@ -85,8 +85,10 @@ def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None) -> in
         breadth = 0.0
     breadth_ok = breadth >= 0.5
 
-    print("OKX spot paper summary")
-    print(f"live tickers + cached daily bars    closed {btc.index[-1].date()}    age {age_h:.1f}h    names {len(frames)}    missing {missing}")
+    print(title(
+        "OKX spot paper summary",
+        f"live tickers + cached daily bars    closed {btc.index[-1].date()}    age {age_h:.1f}h    names {len(frames)}    missing {missing}",
+    ))
     if age_h > 36:
         print("Cache is stale. Run: python -m tradingbot data-sync --bars 1Dutc")
     print(kv([
@@ -156,5 +158,25 @@ def print_summary(cfg: Config, *, top: int = 8, symbol: str | None = None) -> in
             pairs.append(("Hypothetical TP 2R", px(live + 2 * (live - mid))))
             pairs.append(("Note", "label only, not a strategy exit"))
         print(kv(pairs))
+
+    # CONCLUSION: what the numbers actually say
+    concl: list[str] = []
+    if not gate_on:
+        concl.append("BTC is under its SMA200. Trend gate OFF. The strategy stays in cash; any open exits on its stop.")
+    elif not breadth_ok:
+        concl.append(f"BTC trend gate is ON, but only {breadth:.0%} of the liquidity top-20 is above its SMA50 (needs 50%). Weak market: no new entries.")
+    else:
+        concl.append("BTC gate ON and breadth OK. New breakouts are allowed, but each still needs a daily close above its 20-day high.")
+    if under:
+        _r, g, coin, _live, level_u, _mid, _ok = under[0]
+        concl.append(f"Closest setup: {coin}, {pct(g)} below its breakout level ({px(level_u)}).")
+    if above:
+        names = ", ".join(c for _g, c, *_ in above[:3])
+        concl.append(f"Above the old high but unconfirmed: {names}. Wait for the daily close.")
+    if not under and not above:
+        concl.append("Nothing near a breakout. Boring tape; cash is the position.")
+    concl.append("Verdict: paper only. No live order, and OKX main balance untouched.")
+    print(title("Conclusion"))
+    print(bullets(concl))
     print(title("Note", "Paper only. No live order. Exit is a close under the stop, or BTC back under SMA200."))
     return 0

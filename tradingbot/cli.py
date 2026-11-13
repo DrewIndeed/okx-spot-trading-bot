@@ -149,8 +149,21 @@ def _run_d1(cfg: Config, feed: OkxRestFeed, *, days: int, update: bool, n_folds:
     )
 
 
-def _run_my_d1(cfg: Config, feed: OkxRestFeed, *, days: int, update: bool, n_folds: int, oos_ratio: float) -> str:
-    """Run the unlocked MyD1 strategy with tuned parameters (lookback=10)."""
+def _run_my_d1(
+    cfg: Config,
+    feed: OkxRestFeed,
+    *,
+    days: int,
+    update: bool,
+    n_folds: int,
+    oos_ratio: float,
+    lookback: int,
+    breadth_min: float,
+    risk_pct: float,
+    max_weight: float,
+    exposure_scale: float,
+) -> str:
+    """Run the unlocked MyD1 strategy with CLI-tunable parameters."""
     from tradingbot.universe import breadth_top20, monthly_top20_universe
 
     by, missing = _load_d1_panel(feed, cfg, days=days, update=update)
@@ -158,14 +171,13 @@ def _run_my_d1(cfg: Config, feed: OkxRestFeed, *, days: int, update: bool, n_fol
         raise SystemExit("MyD1 backtest needs BTC 1Dutc candles (seed or download).")
     C, HI, LO, VQ, O = panel_from_candles(by)
 
-    # Tuned parameters from sweep: lookback=10 passed safety bar
     plugin = MyD1Strategy(
         allocated_capital=cfg.allocated_capital,
-        lookback=20,
-        breadth_min=0.5,
-        risk_pct=0.01,
-        max_weight=0.10,
-        exposure_scale=0.50,
+        lookback=lookback,
+        breadth_min=breadth_min,
+        risk_pct=risk_pct,
+        max_weight=max_weight,
+        exposure_scale=exposure_scale,
     )
     plugin.prepare(C, high=HI, low=LO, quote_vol=VQ)
     state = {}
@@ -189,10 +201,13 @@ def _run_my_d1(cfg: Config, feed: OkxRestFeed, *, days: int, update: bool, n_fol
     st_folds = fold_metrics(st_c, st_eq, st_ts, bars[: len(st_eq)], n_folds, oos_ratio, cfg.allocated_capital)
     miss = f"Missing 1Dutc cache for: {', '.join(missing)}" if missing else ""
     note = MY_D1_DISCLAIMER + (f"\n{miss}" if miss else "")
-    note += "\nParameters: lookback=20, exposure_scale=0.50, breadth_min=0.5, risk_pct=0.01, max_weight=0.10"
+    note += (
+        f"\nParameters: lookback={lookback}, exposure_scale={exposure_scale}, "
+        f"breadth_min={breadth_min}, risk_pct={risk_pct}, max_weight={max_weight}"
+    )
     note += f"\nUniverse: {cfg.universe_file} ({len(by)}/{len(by)+len(missing)} names loaded). Breadth uses point-in-time monthly top-20."
     return format_report(
-        "MY_D1_breakout  1Dutc  favorites  lookback=20 scale=0.50",
+        f"MY_D1_breakout  1Dutc  favorites  lookback={lookback} scale={exposure_scale}",
         bars[: len(eq)],
         closed,
         eq,
@@ -278,18 +293,56 @@ def cmd_backtest(cfg: Config, args) -> int:
     if "my_d1" in names:
         my_d1_days = max(days, 800) if bar in ("1H", "4H") else days
         try:
-            reports.append(_run_my_d1(cfg, feed, days=my_d1_days, update=update, n_folds=n_folds, oos_ratio=oos_ratio))
+            reports.append(
+                _run_my_d1(
+                    cfg,
+                    feed,
+                    days=my_d1_days,
+                    update=update,
+                    n_folds=n_folds,
+                    oos_ratio=oos_ratio,
+                    lookback=args.lookback,
+                    breadth_min=args.breadth_min,
+                    risk_pct=args.risk_pct,
+                    max_weight=args.max_weight,
+                    exposure_scale=args.exposure_scale,
+                )
+            )
         except SystemExit:
             raise
         except Exception as e:
             print(f"MyD1 backtest failed: {e}", file=sys.stderr)
             raise
     print("\n\n".join(reports))
+    from tradingbot.termfmt import bullets, title
+
+    print(title("Conclusion", "How to read the report above"))
+    print(bullets([
+        "OOS = out-of-sample: metrics from bars the strategy never saw while being built. Trust OOS, not full-window.",
+        "PF = profit factor: wins sum / losses sum. >1 profitable, >1.3 comfortable.",
+        "Sharpe = return per unit of volatility. >1 on OOS is decent for daily bars.",
+        "max_dd = worst peak-to-trough equity drop. Risk cap is 30%; near the cap means aggressive.",
+        "Stress = same run at 2x costs. Edge that dies at 2x costs was fee noise, not edge.",
+        "Full-window flatters: it includes the bars used to build the strategy. OOS is the honest number.",
+        "Verdict: backtest on real OKX data. Paper only, no live orders, OKX main balance untouched.",
+    ]))
     print("\nDone. These are placeholder/reference-plugin results, not a performance claim.")
     return 0
 
 
-def run_paper_iteration(cfg: Config, *, strategy: str = "d1", update: bool = True, bar: str | None = None, run_id: str | None = None) -> tuple[int, dict]:
+def run_paper_iteration(
+    cfg: Config,
+    *,
+    strategy: str = "d1",
+    update: bool = True,
+    bar: str | None = None,
+    run_id: str | None = None,
+    lookback: int = 8,
+    breadth_min: float = 0.7,
+    risk_pct: float = 0.03,
+    max_weight: float = 0.05,
+    exposure_scale: float = 1.00,
+) -> tuple[int, dict]:
     """One paper cycle on the last closed bar. Shared by paper-once and the 24h loop."""
     log = JsonlLogger(cfg.log_path)
     name = strategy or "d1"
@@ -432,11 +485,11 @@ def run_paper_iteration(cfg: Config, *, strategy: str = "d1", update: bool = Tru
         C, HI, LO, VQ, O = panel_from_candles(by)
         plugin = MyD1Strategy(
             allocated_capital=cfg.allocated_capital,
-            lookback=20,
-            breadth_min=0.5,
-            risk_pct=0.01,
-            max_weight=0.10,
-            exposure_scale=0.50,
+            lookback=lookback,
+            breadth_min=breadth_min,
+            risk_pct=risk_pct,
+            max_weight=max_weight,
+            exposure_scale=exposure_scale,
         )
         plugin.prepare(C, high=HI, low=LO, quote_vol=VQ)
         state = {}
@@ -577,23 +630,42 @@ def cmd_paper_once(cfg: Config, args) -> int:
         strategy=args.strategy or "d1",
         update=not args.no_update,
         bar=getattr(args, "bar", None),
+        lookback=args.lookback,
+        breadth_min=args.breadth_min,
+        risk_pct=args.risk_pct,
+        max_weight=args.max_weight,
+        exposure_scale=args.exposure_scale,
     )
     if rc == 0:
-        from tradingbot.termfmt import kv, px, title
+        from tradingbot.termfmt import bullets, kv, px, title
 
         positions = summary.get("positions") or []
+        equity = float(summary.get("equity") or 0.0)
+        cash = float(summary.get("cash") or 0.0)
+        halted = bool(summary.get("halted"))
         print(title("Paper once"))
         print(kv([
             ("Strategy", str(summary.get("strategy") or "-")),
-            ("Equity", px(float(summary.get("equity") or 0))),
-            ("Cash", px(float(summary.get("cash") or 0))),
+            ("Equity", px(equity)),
+            ("Cash", px(cash)),
             ("Positions", ", ".join(positions) if positions else "none"),
             ("Halted", str(summary.get("halted"))),
             ("Note", summary.get("message") or "-"),
             ("State", str(summary.get("state_path") or "-")),
             ("Log", str(summary.get("paper_log_path") or "-")),
         ]))
-        print("Paper / dry-run only. allocated_capital is not the OKX main balance.")
+        concl: list[str] = []
+        if halted:
+            concl.append("Book is halted. Kill switch tripped. It stops trading until reset; no new entries.")
+        if positions:
+            concl.append(f"Open positions: {', '.join(positions)}. Exit is a close under the stop, or BTC back under SMA200.")
+        else:
+            concl.append("Flat. Cash is the position; entries need a daily close above a 20-day high.")
+        used = (equity - cash) / equity if equity > 0 else 0.0
+        concl.append(f"Capital deployed: {used:.0%} of the paper sleeve ({px(equity)} USDT). Cash idle: {px(cash)}.")
+        concl.append("Verdict: paper only. allocated_capital is a configured sleeve, not the OKX main balance.")
+        print(title("Conclusion"))
+        print(bullets(concl))
     return rc
 
 
@@ -687,11 +759,21 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--days", type=int, default=None)
     bt.add_argument("--no-update", action="store_true")
     bt.add_argument("--strategies", default="placeholder,d1", help="Comma list, max 3: placeholder,placeholder_slow,d1,my_d1")
+    bt.add_argument("--lookback", type=int, default=8)
+    bt.add_argument("--breadth-min", type=float, default=0.7)
+    bt.add_argument("--risk-pct", type=float, default=0.03)
+    bt.add_argument("--max-weight", type=float, default=0.05)
+    bt.add_argument("--exposure-scale", type=float, default=1.00)
     bt.add_argument("--folds", type=int, default=None)
     po = sub.add_parser("paper-once", help="One paper cycle on the last closed bar")
     po.add_argument("--strategy", default="d1", choices=["d1", "placeholder", "placeholder_slow", "my_d1"])
     po.add_argument("--bar", default=None)
     po.add_argument("--no-update", action="store_true")
+    po.add_argument("--lookback", type=int, default=8)
+    po.add_argument("--breadth-min", type=float, default=0.7)
+    po.add_argument("--risk-pct", type=float, default=0.03)
+    po.add_argument("--max-weight", type=float, default=0.05)
+    po.add_argument("--exposure-scale", type=float, default=1.00)
     ps = sub.add_parser("paper-start", help="Start 24h paper loop in background (pidfile). Does not place live orders.")
     ps.add_argument("--strategies", default="d1", help="Comma list, or 'v2' / 'v3' for official paper clocks")
     ps.add_argument("--poll", type=int, default=60, help="Seconds between polls (default 60)")

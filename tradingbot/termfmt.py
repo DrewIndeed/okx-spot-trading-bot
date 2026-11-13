@@ -66,3 +66,8 @@ def title(text: str, note: str = "") -> str:
 
 def banner(text: str) -> str:
     return text
+
+
+def bullets(items: list[str]) -> str:
+    """Dash list for plain-terminal conclusions."""
+    return "\n".join(f"- {t}" for t in items) if items else "- none"

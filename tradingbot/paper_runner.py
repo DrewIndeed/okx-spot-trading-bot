@@ -279,6 +279,10 @@ def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: 
     except ProcessLookupError:
         clear_pid(pf)
         return f"process {pid} already gone"
+    except PermissionError:
+        # Windows: pid points at a dead/foreign process -> treat as stale
+        clear_pid(pf)
+        return f"cleared stale pidfile (pid={pid}, Windows access denied)"
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not pid_is_alive(pid):
@@ -288,6 +292,8 @@ def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: 
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
+            pass
+        except PermissionError:
             pass
     clear_pid(pf)
     if is_v3_run(run_id):

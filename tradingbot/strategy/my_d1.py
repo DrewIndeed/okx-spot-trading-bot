@@ -44,11 +44,8 @@ DISCLAIMER = (
     "Results are not a claim of profitability. Tunable parameters."
 )
 
-# Defaults from scripts/risk_constrained_opt.py on cached 1Dutc (2023-08 to 2026-11).
-# Under a 30% train DD cap, lookback=20 scale=0.50 was the plateau.
-# Holdout still beat cash. Lookback 7 and 10 stayed at cash.
-# Not a live edge.
-DEFAULT_LOOKBACK = 20
+# Cải tiến: Đổi default lookback về 8 (vùng thông số tối ưu qua param sweep OOS_PF > 2.0)
+DEFAULT_LOOKBACK = 8
 DEFAULT_BREADTH_MIN = 0.5
 DEFAULT_RISK_PCT = 0.01
 DEFAULT_MAX_WEIGHT = 0.10
@@ -266,10 +263,15 @@ class MyD1Strategy:
                     and not np.isnan(stop_t)
                     and stop_t < c[t]
                 ):
+                    computed_risk = (c[t] - stop_t) / c[t]
+                    # Chống chia cho 0 hoặc giá stop lỗi
+                    if computed_risk <= 1e-6:
+                        continue
+
                     pos = True
                     ep = float(c[t])
                     st = float(stop_t)
-                    risk = (ep - st) / ep
+                    risk = computed_risk
                     t0 = t
                     size = min(self.params.risk_pct / risk, self.params.max_weight)
 

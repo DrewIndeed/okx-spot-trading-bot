@@ -28,15 +28,9 @@ def load_favorites(path: str | Path | None = None) -> list[str]:
     p = Path(path or DEFAULT_FAVORITES)
     text = p.read_text().strip()
     bases = [t for t in text.replace(",", " ").split() if t]
-    # Normalize BTC to plain "BTC" (file may have "BTC-USDT" or "BTC")
-    normed = []
-    for b in bases:
-        u = b.upper()
-        if u == "BTC" or u == "BTC-USDT":
-            normed.append("BTC")
-        else:
-            normed.append(b)
-    bases = normed
+    # Normalize every entry to its plain base symbol ("HYPE-USDT" -> "HYPE").
+    # inst_id() re-adds -USDT wherever a full instrument id is needed.
+    bases = [base_sym(b) for b in bases]
     # BTC first, as in setup.py / paper_book.py / daily_bo.refresh
     if "BTC" in bases:
         bases = ["BTC"] + [s for s in bases if s != "BTC"]

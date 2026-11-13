@@ -88,6 +88,22 @@ def status_path(cfg: Optional[Config] = None, run_id: Optional[str] = None) -> P
 def pid_is_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        # os.kill(pid, 0) is unreliable on Windows (dead-but-open handles look alive).
+        import ctypes
+
+        k32 = ctypes.windll.kernel32
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        k32.OpenProcess.restype = ctypes.c_void_p
+        k32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+        h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            return False
+        code = ctypes.c_ulong()
+        ok = k32.GetExitCodeProcess(ctypes.c_void_p(h), ctypes.byref(code))
+        k32.CloseHandle(ctypes.c_void_p(h))
+        return bool(ok) and code.value == STILL_ACTIVE
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -280,17 +296,23 @@ def stop_background(cfg: Optional[Config] = None, timeout: float = 8.0, run_id: 
         clear_pid(pf)
         return f"process {pid} already gone"
     except PermissionError:
-        # Windows: pid points at a dead/foreign process -> treat as stale
-        clear_pid(pf)
-        return f"cleared stale pidfile (pid={pid}, Windows access denied)"
+        # Windows: SIGTERM unsupported. Live child -> force-kill; dead pid -> stale.
+        if pid_is_alive(pid):
+            import subprocess
+
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+        else:
+            clear_pid(pf)
+            return f"cleared stale pidfile (pid={pid}, Windows access denied)"
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not pid_is_alive(pid):
             break
         time.sleep(0.1)
     if pid_is_alive(pid):
+        sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
         try:
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, sigkill)
         except ProcessLookupError:
             pass
         except PermissionError:

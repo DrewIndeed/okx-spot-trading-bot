@@ -1,7 +1,7 @@
-"""Telegram alert hook. T1 stub: never sends a network message (no external send without Andrew).
+"""Telegram alert hook.
 
-If TELEGRAM_BOT_TOKEN is absent, we only log that alerts are disabled.
-If a token is present, we still do not send — we log a stub event and never print the token.
+Real send ONLY when both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set.
+Never logs or echoes the token. Alerts are messages only — no orders, no keys.
 """
 
 from __future__ import annotations
@@ -12,18 +12,32 @@ from typing import Optional
 from tradingbot.logutil import JsonlLogger
 
 
-def send_alert(text: str, logger: Optional[JsonlLogger] = None, token: Optional[str] = None) -> bool:
-    """Return True only if a real send happened. T1 always returns False."""
-    log = logger or JsonlLogger()
-    # Read token only to decide the branch; never log or return it.
-    has_token = bool((token if token is not None else os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip())
-    if not has_token:
-        log.info("telegram_disabled", reason="no token", text=text)
+def _post(token: str, chat_id: str, text: str) -> bool:
+    import json as _json
+    import urllib.request
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    body = _json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            ok = 200 <= getattr(resp, "status", 200) < 300
+    except Exception:
         return False
-    log.info(
-        "telegram_stub_not_sent",
-        reason="scaffold_no_external_send",
-        has_token=True,
-        text=text,
-    )
-    return False
+    return ok
+
+
+def send_alert(text: str, logger: Optional[JsonlLogger] = None, token: Optional[str] = None) -> bool:
+    """Return True only if a real send happened. Text is truncated to 4000 chars."""
+    log = logger or JsonlLogger()
+    tok = (token if token is not None else os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat = (os.environ.get("TELEGRAM_CHAT_ID") or "").strip()
+    if not tok or not chat:
+        log.info("telegram_disabled", reason="missing token or chat id", text=text)
+        return False
+    sent = _post(tok, chat, text[:4000])
+    if sent:
+        log.info("telegram_sent", chat_id=chat, chars=len(text))
+    else:
+        log.info("telegram_send_failed", chat_id=chat, text=text)
+    return sent

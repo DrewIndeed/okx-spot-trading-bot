@@ -800,6 +800,8 @@ def build_parser() -> argparse.ArgumentParser:
     sig.add_argument("--top", type=int, default=10)
     sig.add_argument("--days", type=int, default=800)
     sig.add_argument("--no-update", action="store_true", help="Cache only. Default pulls OKX public REST first.")
+    nt = sub.add_parser("notify-test", help="Send one Telegram test message")
+    tg = sub.add_parser("tg-bot", help="Telegram command bot (long polling; needs TELEGRAM_BOT_TOKEN)")
     ws = sub.add_parser("ws-smoke", help="Short public WS connect (candles/tickers)")
     ws.add_argument("--symbol", default=None)
     ws.add_argument("--bar", default="1H")
@@ -822,6 +824,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     except NotImplementedError as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 3
+    if args.cmd == "tg-bot":
+        from tradingbot.tgbot import run_tg_bot
+        return run_tg_bot()
+    if args.cmd == "notify-test":
+        from tradingbot.alerts import send_alert
+        from tradingbot.termfmt import kv, title
+
+        print(title("Notify test"))
+        sent = send_alert("okx-spot-trading-bot: notify test ok. Paper only, no live orders.")
+        print(kv([("Telegram", "sent" if sent else "NOT sent (check TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)")]))
+        return 0 if sent else 1
     if args.cmd == "backtest":
         return cmd_backtest(cfg, args)
     if args.cmd == "paper-once":

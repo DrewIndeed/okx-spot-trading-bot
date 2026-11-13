@@ -1,0 +1,44 @@
+name: paper-loop
+# FREE deploy: scheduled GitHub Actions runs the paper bot, commits state back,
+# sends Telegram alerts. Paper / dry-run only. No OKX keys exist anywhere.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # every 30 min; hourly = "0 * * * *", daily = "5 0 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: paper-loop
+  cancel-in-progress: false
+
+jobs:
+  once:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Data sync (1Dutc only, keeps run fast)
+        run: python -m tradingbot data-sync --bars 1Dutc --days 400
+      - name: One paper iteration (sends Telegram equity alert)
+        run: python -m tradingbot paper-once --strategy my_d1
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Commit paper state
+        run: |
+          git config user.name  "paper-bot"
+          git config user.email "paper-bot@users.noreply.github.com"
+          # state/ and logs/ are gitignored -> force-add, they ARE the persistence
+          git add -f state/portfolio.json logs/paper_book.jsonl 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "paper state update [skip ci]"
+          git pull --rebase origin || true
+          git push

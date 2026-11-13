@@ -10,7 +10,7 @@ def test_favorites_includes_hype_ondo_and_btc_first():
     favs = load_favorites()
     assert favs[0] == "BTC"
     assert "HYPE" in favs and "ONDO" in favs
-    assert len(favs) == 49
+    assert len(favs) >= 49  # original core; seed grew to 125 USDT pairs
     assert "USDT" not in favs  # bases only, no stables
 
 

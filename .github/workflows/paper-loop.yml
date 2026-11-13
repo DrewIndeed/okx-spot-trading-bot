@@ -1,6 +1,7 @@
 name: paper-loop
-# FREE deploy: scheduled GitHub Actions runs the paper bot, commits state back,
-# sends Telegram alerts. Paper / dry-run only. No OKX keys exist anywhere.
+# FREE deploy: scheduled GitHub Actions runs the paper bot, commits state to the
+# dedicated `paper-state` branch (never main), sends Telegram alerts.
+# Paper / dry-run only. No OKX keys exist anywhere.
 
 on:
   schedule:
@@ -14,9 +15,13 @@ concurrency:
   group: paper-loop
   cancel-in-progress: false
 
+env:
+  STATE_BRANCH: paper-state
+
 jobs:
   once:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +31,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e .
+      - name: Restore paper state from the state branch (if it exists)
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null; then
+            git fetch origin "$STATE_BRANCH"
+            mkdir -p state logs
+            for f in state/portfolio.json state/dd_breaches.json logs/paper_book.jsonl; do
+              if git cat-file -e "origin/$STATE_BRANCH:$f" 2>/dev/null; then
+                git show "origin/$STATE_BRANCH:$f" > "$f"
+              fi
+            done
+          else
+            echo "no $STATE_BRANCH branch yet; starting a fresh paper book"
+          fi
       - name: Data sync (1Dutc only, keeps run fast)
         run: python -m tradingbot data-sync --bars 1Dutc --days 400
       - name: One paper iteration (sends Telegram equity alert)
@@ -33,12 +52,29 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      - name: Commit paper state
+      - name: Commit paper state to the state branch
         run: |
+          set -euo pipefail
           git config user.name  "paper-bot"
           git config user.email "paper-bot@users.noreply.github.com"
-          # state/ and logs/ are gitignored -> force-add, they ARE the persistence
-          git add -f state/portfolio.json logs/paper_book.jsonl 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "paper state update [skip ci]"
-          git pull --rebase origin || true
-          git push
+          work="$(mktemp -d)"
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" >/dev/null; then
+            git worktree add "$work" "origin/$STATE_BRANCH"
+            git -C "$work" checkout -B "$STATE_BRANCH"
+          else
+            # First run: create the branch as an orphan (normal push, no force).
+            git worktree add --detach "$work"
+            git -C "$work" checkout --orphan "$STATE_BRANCH"
+            git -C "$work" rm -rf --quiet .
+          fi
+          mkdir -p "$work/state" "$work/logs"
+          for f in state/portfolio.json state/dd_breaches.json logs/paper_book.jsonl; do
+            if [ -f "$f" ]; then cp "$f" "$work/$f"; fi
+          done
+          git -C "$work" add -f state logs
+          if git -C "$work" diff --cached --quiet; then
+            echo "no state change"
+            exit 0
+          fi
+          git -C "$work" commit -m "paper state update [skip ci]"
+          git -C "$work" push origin "HEAD:refs/heads/$STATE_BRANCH"

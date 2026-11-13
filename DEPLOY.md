@@ -8,7 +8,7 @@ somewhere + pushing alert messages to your phone.
 
 | Option                                                    | Cost | Verdict       | Why                                                                                                                                            |
 | --------------------------------------------------------- | ---- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **GitHub Actions cron (loop mode)**                       | $0   | **Best free** | Runs `paper-once` on schedule, commits paper state back to the repo, sends Telegram. Public repo = free unlimited minutes for standard runners |
+| **GitHub Actions cron (loop mode)**                       | $0   | **Best free** | Runs `paper-once` on schedule, commits paper state to the `paper-state` branch, sends Telegram. Public repo = free unlimited minutes for standard runners |
 | **Oracle Cloud Always Free** (ARM Ampere A1, 4 vCPU/24GB) | $0   | Best free VPS | Real server, systemd, persistent disk. Signup needs card for ID check (never charged on Always Free)                                           |
 | **Vercel / Netlify / Render / Railway**                   | —    | ❌            | Serverless no disk / trial expires / paid. Wrong tool                                                                                          |
 
@@ -34,55 +34,21 @@ min/month, likely too little for 30-min cadence — use public or hourly cron).
    - `TELEGRAM_CHAT_ID` — your chat id (see section 2)
 2. Commit `.github/workflows/paper-loop.yml`:
 
-```yaml
-name: paper-loop
-on:
-  schedule:
-    - cron: "*/30 * * * *" # every 30 min; use "0 * * * *" for hourly
-  workflow_dispatch: {}
-
-permissions:
-  contents: write
-
-concurrency:
-  group: paper-loop
-  cancel-in-progress: false
-
-jobs:
-  once:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install -e .
-      - name: Data sync (1Dutc only, keeps run fast)
-        run: python -m tradingbot data-sync --bars 1Dutc --days 400
-      - name: One paper iteration (sends Telegram equity alert)
-        run: python -m tradingbot paper-once --strategy my_d1
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      - name: Commit paper state
-        run: |
-          git config user.name  "paper-bot"
-          git config user.email "paper-bot@users.noreply.github.com"
-          # state/ and logs/ are gitignored -> force-add, they ARE the persistence
-          git add -f state/portfolio.json logs/paper_book.jsonl 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "paper state update [skip ci]"
-          git pull --rebase origin || true
-          git push
-```
+The workflow lives in `.github/workflows/paper-loop.yml` (single source of truth; not
+copied here). It has a 15-minute timeout, restores the book from the `paper-state` branch,
+runs `paper-once --strategy my_d1`, and commits `state/portfolio.json`,
+`state/dd_breaches.json` and `logs/paper_book.jsonl` back to `paper-state` (created on
+the first run with a normal push). It never commits to `main` and never hides a failed step.
 
 3. Run it once by hand: Actions tab → paper-loop → Run workflow. Then it self-schedules.
 
 How it works / limits:
 
-- `paper-once` reads `state/portfolio.json` from the repo, updates equity/positions on the
-  last closed daily bar, writes it back. That IS the persistence — no server disk needed.
+- `paper-once` reads `state/portfolio.json` restored from the `paper-state` branch, updates
+  equity/positions on the last closed daily bar, and the workflow commits it back to
+  `paper-state`. That IS the persistence — no server disk needed, and `main` stays clean.
+- Drawdown crossings of -15% and -20% are logged and alerted once per crossing; the paper
+  kill switch is `risk.max_drawdown` (0.30, paper only). Live configs must use <= 0.15.
 - Every iteration calls `send_alert(...)` → Telegram message each run. Noise? Switch cron
   to `"0 * * * *"` (hourly) or `"5 0 * * *"` (daily).
 - Each run re-pulls ~125 symbols of daily candles (~3-4 min). Runner-free on public repos.

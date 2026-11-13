@@ -145,7 +145,7 @@ def _handle(token: str, chat: str, text: str, lock: threading.Lock) -> None:
 def run_tg_bot() -> int:
     token = (os.environ.get("TELEGRAM_BOT_TOKEN") or "").strip()
     if not token:
-        print("TELEGRAM_BOT_TOKEN missing. Set it in .env / environment.")
+        print("TELEGRAM_BOT_TOKEN missing. Export it in the environment (this bot does not read .env itself).")
         return 2
     allowed = {c.strip() for c in (os.environ.get("TELEGRAM_CHAT_ID") or "").split(",") if c.strip()}
     if not allowed:

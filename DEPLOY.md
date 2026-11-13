@@ -6,15 +6,23 @@ somewhere + pushing alert messages to your phone.
 
 ## 1. Where to deploy — pick one
 
-| Option | Cost | Verdict | Why |
-|---|---|---|---|
-| **GitHub Actions cron (loop mode)** | $0 | **Best free** | Runs `paper-once` on schedule, commits paper state back to the repo, sends Telegram. Public repo = free unlimited minutes for standard runners |
-| **Oracle Cloud Always Free** (ARM Ampere A1, 4 vCPU/24GB) | $0 | Best free VPS | Real server, systemd, persistent disk. Signup needs card for ID check (never charged on Always Free) |
-| **Vercel / Netlify / Render / Railway** | — | ❌ | Serverless no disk / trial expires / paid. Wrong tool |
+| Option                                                    | Cost | Verdict       | Why                                                                                                                                            |
+| --------------------------------------------------------- | ---- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub Actions cron (loop mode)**                       | $0   | **Best free** | Runs `paper-once` on schedule, commits paper state back to the repo, sends Telegram. Public repo = free unlimited minutes for standard runners |
+| **Oracle Cloud Always Free** (ARM Ampere A1, 4 vCPU/24GB) | $0   | Best free VPS | Real server, systemd, persistent disk. Signup needs card for ID check (never charged on Always Free)                                           |
+| **Vercel / Netlify / Render / Railway**                   | —    | ❌            | Serverless no disk / trial expires / paid. Wrong tool                                                                                          |
 
 **Recommendation (free-only): GitHub Actions loop.** Zero server. State is committed back
 to the repo between runs, so the paper book persists. Oracle VPS is the upgrade path if
 you later want a real 24/7 process without GitHub cadence limits.
+
+> **Pick ONE place that owns the paper book** (`state/portfolio.json`): the GitHub
+> Actions loop (1a), the systemd `okxbot` service (section 4), or `/startloop` from
+> Telegram. Running two of them at once means two writers on the same state.
+> GitHub only fires `schedule:` triggers from the **default branch**, so the Actions
+> loop does nothing until the workflow file is merged to `main`.
+> The bot does not read `.env` itself: systemd loads it via `EnvironmentFile`; on your
+> own PC export `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in the shell first.
 
 ## 1a. FREE path A — GitHub Actions paper loop (no server at all)
 
@@ -30,7 +38,7 @@ min/month, likely too little for 30-min cadence — use public or hourly cron).
 name: paper-loop
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 min; use "0 * * * *" for hourly
+    - cron: "*/30 * * * *" # every 30 min; use "0 * * * *" for hourly
   workflow_dispatch: {}
 
 permissions:
@@ -72,6 +80,7 @@ jobs:
 3. Run it once by hand: Actions tab → paper-loop → Run workflow. Then it self-schedules.
 
 How it works / limits:
+
 - `paper-once` reads `state/portfolio.json` from the repo, updates equity/positions on the
   last closed daily bar, writes it back. That IS the persistence — no server disk needed.
 - Every iteration calls `send_alert(...)` → Telegram message each run. Noise? Switch cron
@@ -162,6 +171,7 @@ Each cycle it already calls `send_alert(...)` → **Telegram message with equity
 You get a message every hour. Want less noise? `--poll 86400` (daily) or lower it.
 
 Stop / update:
+
 ```bash
 sudo systemctl stop okxbot                        # stop
 cd okx-spot-trading-bot && git pull && .venv/bin/pip install -e . && sudo systemctl restart okxbot
@@ -200,18 +210,20 @@ journalctl -u okxbot-tg -f
 
 Then in Telegram you get a command menu (auto-registered via setMyCommands):
 
-| Command | Runs | Speed |
-|---|---|---|
-| `/status` | paper-status | instant |
-| `/summary` | summary --top 8 | instant |
-| `/signals` | signals --no-update --top 5 | instant |
-| `/notify` | notify-test | instant |
-| `/sync` | data-sync --bars 1Dutc | ~2-4 min |
-| `/backtest` | backtest my_d1, 400d | ~1 min |
-| `/once` | paper-once my_d1 | seconds-minutes |
-| `/start` | paper-start my_d1, hourly | seconds |
-| `/stop` | paper-stop | seconds |
-| `/help` | menu | instant |
+| Command      | Runs                        | Speed           |
+| ------------ | --------------------------- | --------------- |
+| `/status`    | paper-status                | instant         |
+| `/summary`   | summary --top 8             | instant         |
+| `/signals`   | signals --no-update --top 5 | instant         |
+| `/notify`    | notify-test                 | instant         |
+| `/sync`      | data-sync --bars 1Dutc      | ~2-4 min        |
+| `/backtest`  | backtest my_d1, 400d        | ~1 min          |
+| `/once`      | paper-once my_d1            | seconds-minutes |
+| `/startloop` | paper-start my_d1, hourly   | seconds         |
+| `/stoploop`  | paper-stop                  | seconds         |
+| `/help`      | menu                        | instant         |
+
+`/start` is Telegram's built-in "open chat" command: it only shows the welcome message.
 
 Safety: only the chat id(s) in `TELEGRAM_CHAT_ID` get answers; other chats are
 ignored silently. Unknown commands get the menu. Long commands queue one at a
@@ -249,9 +261,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now okxbot-signals.timer
 ```
 
-## 6. GitHub Actions cron (free alternative, notify-only)
+## 6b. GitHub Actions cron (free alternative, notify-only)
 
 `.github/workflows/signals.yml`:
+
 ```yaml
 name: signals-digest
 on:
@@ -267,7 +280,7 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install -e .
       - run: |
-          .venv/bin/python -m tradingbot data-sync --bars 1Dutc --days 400 || true
+          python -m tradingbot data-sync --bars 1Dutc --days 400
         env: {}
       - run: |
           PYTHONUTF8=1 python -m tradingbot signals --top 5 | tail -40 | python -c "
@@ -279,6 +292,7 @@ send_alert(sys.stdin.read())
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 ```
+
 Add the two repo secrets under Settings → Secrets → Actions. Note: each run re-pulls
 ~125 symbols of daily candles (~2-4 min), no state between runs — good for digests,
 wrong for the equity loop.
